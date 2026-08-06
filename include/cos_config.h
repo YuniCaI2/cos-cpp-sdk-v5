@@ -7,8 +7,8 @@
 #include <mutex>
 #include <string>
 
-#include "Poco/JSON/Parser.h"
 #include "util/log_util.h"
+#include "util/json_util.h"
 
 namespace qcloud_cos {
 
@@ -107,7 +107,7 @@ class CosConfig {
     m_intranet_addr = config.m_intranet_addr;
     m_dest_domain = config.m_dest_domain;
     m_is_domain_same_to_host = config.m_is_domain_same_to_host;
-    m_is_domain_same_to_host_enable = config.m_is_domain_same_to_host;
+    m_is_domain_same_to_host_enable = config.m_is_domain_same_to_host_enable;
     m_config_parsed = config.m_config_parsed;
     m_max_retry_times = config.m_max_retry_times;
     m_retry_interval_ms = config.m_retry_interval_ms;
@@ -129,7 +129,7 @@ class CosConfig {
     m_intranet_addr = config.m_intranet_addr;
     m_dest_domain = config.m_dest_domain;
     m_is_domain_same_to_host = config.m_is_domain_same_to_host;
-    m_is_domain_same_to_host_enable = config.m_is_domain_same_to_host;
+    m_is_domain_same_to_host_enable = config.m_is_domain_same_to_host_enable;
     m_config_parsed = config.m_config_parsed;
     m_max_retry_times = config.m_max_retry_times;
     m_retry_interval_ms = config.m_retry_interval_ms;
@@ -244,14 +244,25 @@ class CosConfig {
   /// \brief 获取断点续传 checkpoint 文件的存储目录
   std::string GetCheckpointDir() const { return m_checkpoint_dir; }
 
-  static bool JsonObjectGetStringValue(
-      const Poco::JSON::Object::Ptr& json_object, const std::string& key,
-      std::string* value);
-  static bool JsonObjectGetIntegerValue(
-      const Poco::JSON::Object::Ptr& json_object, const std::string& key,
-      uint64_t* value);
-  static bool JsonObjectGetBoolValue(const Poco::JSON::Object::Ptr& json_object,
-                                     const std::string& key, bool* value);
+  template <typename JsonObjectPtr>
+  static bool JsonObjectGetStringValue(const JsonObjectPtr& json_object,
+                                       const std::string& key,
+                                       std::string* value) {
+    return JsonUtil::GetStringValue(json_object, key, value);
+  }
+
+  template <typename JsonObjectPtr>
+  static bool JsonObjectGetIntegerValue(const JsonObjectPtr& json_object,
+                                        const std::string& key,
+                                        uint64_t* value) {
+    return JsonUtil::GetIntegerValue(json_object, key, value);
+  }
+
+  template <typename JsonObjectPtr>
+  static bool JsonObjectGetBoolValue(const JsonObjectPtr& json_object,
+                                     const std::string& key, bool* value) {
+    return JsonUtil::GetBoolValue(json_object, key, value);
+  }
 
  private:
   mutable std::mutex m_lock;

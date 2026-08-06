@@ -3,7 +3,6 @@
 #include <map>
 #include <string>
 
-#include "Poco/Runnable.h"
 #include "request/object_req.h"
 #include "trsf/transfer_handler.h"
 #include "util/base_op_util.h"
@@ -12,7 +11,7 @@
 
 namespace qcloud_cos {
 
-class FileUploadTask : public Poco::Runnable {
+class FileUploadTask {
  public:
   FileUploadTask(const std::string& host,
                  const std::string& path,

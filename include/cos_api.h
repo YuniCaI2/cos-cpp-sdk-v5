@@ -7,7 +7,15 @@
 #include "op/service_op.h"
 #include "util/auth_tool.h"
 #include "util/codec_util.h"
-#include "Poco/TaskManager.h"
+
+// Kept as an opaque type for source compatibility with the legacy overloads
+// below. New code should use the overloads without a TaskManager argument;
+// the SDK now owns its standard-library based async executor. The legacy
+// overloads set the output pointer to nullptr because the old executor type is
+// no longer part of the SDK dependency graph.
+namespace Poco {
+class TaskManager;
+}
 
 namespace qcloud_cos {
 
@@ -1033,7 +1041,6 @@ class CosAPI {
   ServiceOp m_service_op;  // 内部封装service相关的操作
 
   static bool s_init;
-  static bool s_poco_init;
   static int s_cos_obj_num;
 };
 

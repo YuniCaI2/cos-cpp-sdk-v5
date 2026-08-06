@@ -11,9 +11,9 @@
 #include <string.h>
 
 #include <bitset>
+#include <cstdint>
 #include <fstream>
 
-#include "Poco/Checksum.h"
 #include "cos_params.h"
 #include "cos_sys_config.h"
 #include "rapidxml/1.13/rapidxml.hpp"
@@ -22,6 +22,20 @@
 #include "util/string_util.h"
 
 namespace qcloud_cos {
+namespace {
+
+uint32_t Crc32(const char* data, size_t length) {
+  uint32_t crc = 0xffffffffu;
+  for (size_t i = 0; i < length; ++i) {
+    crc ^= static_cast<uint8_t>(data[i]);
+    for (int bit = 0; bit < 8; ++bit) {
+      crc = (crc & 1u) ? ((crc >> 1u) ^ 0xedb88320u) : (crc >> 1u);
+    }
+  }
+  return crc ^ 0xffffffffu;
+}
+
+}  // namespace
 
 bool InitMultiUploadResp::ParseFromXmlString(const std::string& body) {
   rapidxml::xml_document<> doc;
@@ -553,12 +567,15 @@ bool SelectObjectContentResp::ParseFromXmlString(const std::string& body) {
 
   SDK_LOG_DBG("body_length:%u", (unsigned int)body_length);
   while (body_cursor < body_length) {
+    if (body_length - body_cursor < 12) {
+      SDK_LOG_ERR("Incomplete SelectObjectContent prelude");
+      return false;
+    }
     message_start = body_start + body_cursor;
     message_cursor = 0;
 
     // calc prelude crc
-    Poco::Checksum prelude_crc;
-    prelude_crc.update(message_start, bytes_8);
+    uint32_t prelude_crc = Crc32(message_start, bytes_8);
 
     // get total byte length
     total_byte_length =
@@ -567,16 +584,20 @@ bool SelectObjectContentResp::ParseFromXmlString(const std::string& body) {
       SDK_LOG_ERR("Invalid total_byte_length:%u", total_byte_length);
       return false;
     }
+    if (total_byte_length > body_length - body_cursor) {
+      SDK_LOG_ERR("Incomplete SelectObjectContent message, total_byte_length:%u",
+                  total_byte_length);
+      return false;
+    }
     SDK_LOG_DBG("total_byte_length:%u", total_byte_length);
 
     // calc message crc
-    Poco::Checksum message_crc;
-    message_crc.update(message_start, total_byte_length - 4);
+    uint32_t message_crc = Crc32(message_start, total_byte_length - 4);
     crc_expect = StringUtil::GetUint32FromStrWithBigEndian(
         message_start + total_byte_length - 4);
-    if (message_crc.checksum() != crc_expect) {
+    if (message_crc != crc_expect) {
       SDK_LOG_ERR("Message data crc check faield, crc=%u, expected=%u",
-                  message_crc.checksum(), crc_expect);
+                  message_crc, crc_expect);
       return false;
     }
 
@@ -596,9 +617,9 @@ bool SelectObjectContentResp::ParseFromXmlString(const std::string& body) {
     // get and check prelude crc
     crc_expect = StringUtil::GetUint32FromStrWithBigEndian(message_start +
                                                            message_cursor);
-    if (prelude_crc.checksum() != crc_expect) {
+    if (prelude_crc != crc_expect) {
       SDK_LOG_ERR("Prelude crc check faield, crc=%u, expected=%u",
-                  prelude_crc.checksum(), crc_expect);
+                  prelude_crc, crc_expect);
       return false;
     }
     // forward message cursor

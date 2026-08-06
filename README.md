@@ -1,592 +1,69 @@
-## 下载与安装
+# Tencent Cloud COS C++ SDK
 
-#### 编译选项
+这是 Tencent Cloud COS C++ SDK v5 的现代化构建版本。SDK 保留原有请求、响应和 `CosAPI` 接口，传输层改为 libcurl，密码学实现使用 OpenSSL 兼容的 EVP 接口（通过 BoringSSL），任务调度使用 C++ 标准库。
 
-根目录下的CMakeLists.txt可以配置编译选项，有如下编译选项：
+## 依赖与要求
 
-```shell
-option(BUILD_UNITTEST "Build unittest" OFF) #配置编译单元测试
-option(BUILD_DEMO "Build demo" ON) #配置编译demo测试代码
-option(BUILD_SHARED_LIB "Build shared library" OFF) #配置编译动态库
-```
+- CMake 3.21 或更高版本
+- 支持 C++17 的编译器
+- git submodule：`third_party/boringssl`、`third_party/curl`、`third_party/googletest`
 
-#### 库依赖
+SDK 的公共头文件不再包含 OpenSSL 或 libcurl 头文件；二者仅作为实现依赖随 submodule 一并编译。
 
-依赖动态库：poco、openssl。
-
-#### SDK 需要自行基于源码重新编译
-
-下载 [XML C++ SDK 源码](https://github.com/tencentyun/cos-cpp-sdk-v5) 
-
-> 使用时请将对应系统的库文件以及sdk include头文件拷贝至您的工程中。
-
-third-party目录下有第三方依赖库
+## 从源码构建
 
 ```shell
-third_party/lib/linux/poco/ #linux下依赖的poco动态库
-third_party/lib/Win32/openssl/ #Win32依赖的openssl库
-third_party/lib/Win32/poco/ #Win32依赖的poco库
-third_party/lib/x64/openssl/ #Win64依赖的openssl库
-third_party/lib/x64/poco/ #Win64依赖的poco库
-third_party/lib/macOS/poco/ #macOS依赖的poco库
+git submodule update --init --recursive
+cmake -S . -B build -DBUILD_DEMO=OFF -DBUILD_UNITTEST=OFF
+cmake --build build --config Release
 ```
 
-> 使用时也请将对应系统的依赖库拷贝至您的工程中。
+当前钉住的第三方版本见 `third_party/`：BoringSSL `0.20250818.0`、libcurl 8.12.1、GoogleTest 1.15.2。
 
-#### 编译 Linux 版本 SDK
+可用的 CMake 选项：
 
-#### 1. 安装编译工具及依赖库
+| 选项 | 默认值 | 作用 |
+| --- | --- | --- |
+| `BUILD_DEMO` | `OFF` | 构建 `demo/` 下的示例程序 |
+| `BUILD_UNITTEST` | `OFF` | 构建 GTest 单元测试 |
+| `BUILD_SHARED_LIB` | `OFF` | 额外构建共享库 |
+| `ENABLE_COVERAGE` | `OFF` | GCC/Clang 下启用覆盖率 |
+| `USE_OPENSSL_MD5` | `OFF` | 已废弃，仅保留旧脚本兼容性 |
+
+## 构建 demo 与测试
 
 ```shell
-yum install -y gcc gcc-c++ make cmake openssl
-#cmake版本要求大于2.8
+git submodule update --init --recursive
+cmake -S . -B build -DBUILD_DEMO=ON -DBUILD_UNITTEST=ON
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
 ```
 
-#### 2. 编译及安装 Poco 库
+Windows（Ninja）示例：
 
-> Poco 版本推荐使用 1.9.4，当 OpenSSL 版本大于 1.0 版本时，推荐使用 1.12.4 版本。
+```powershell
+git submodule update --init --recursive
+cmake --preset default
+cmake --build --preset default
+ctest --preset default
+```
+
+demo 需要在 `demo/config.json` 中填写 COS 凭证和地域。网络集成测试仍然是可选项，使用 `-DBUILD_LEGACY_INTEGRATION_TESTS=ON` 时还需要自行提供对应的 Poco 测试环境；SDK 本身不再依赖 Poco。
+
+## 安装
 
 ```shell
-# 下载 Poco 源码并解压
-wget https://github.com/pocoproject/poco/archive/refs/tags/poco-${version}-release.zip
-unzip poco-${version}-release.zip # 解压
-# 进入 Poco 主目录并执行编译
-cd poco-poco-${version}-release
-./configure --omit=Data/MySQL,Data/ODBC
-mkdir cmake-build
-cd cmake-build
-cmake ..
-cmake --build . --config Release -j8
-sudo cmake --build . --target install
+cmake --install build --config Release --prefix /opt/cos-cpp-sdk
 ```
 
-> 上述命令执行完成后会将 Poco 动态库安装到 /usr/local/lib 目录中，所有头文件会被复制到 /usr/local/include/Poco 目录中，在生产环境使用时，请将库文件和头文件拷贝至您的工程中，保证程序能找到对应的动态库和头文件。
+会安装公共头文件和 SDK 库。推荐下游工程直接把本仓库作为 `add_subdirectory` / submodule 使用 `cos::cossdk`。
 
-#### 3. 编译SDK 
+## API 兼容性
 
-下载 [XML C++ SDK 源码](https://github.com/tencentyun/cos-cpp-sdk-v5) 到您的开发环境，并执行以下命令：
+- 原有请求、响应、`CosAPI` 操作接口和 XML 数据格式尽量保持不变。
+- 原有无任务管理器参数的异步接口继续可用，并由 SDK 内部的有界 `std::thread` 执行器调度。
+- 为兼容旧源码，带 `Poco::TaskManager*&` 的异步重载仍保留；该参数现在只作为兼容占位，不再创建或使用 Poco，调用后会被置为 `nullptr`。新代码应使用不带该参数的重载。
+- SDK 公共头文件只暴露 RapidXML 的轻量前置声明；实际 XML 实现留在 SDK 编译单元中。现有直接使用 RapidXML 的源码仍可继续包含 SDK 随附的头文件。
+- 由于底层依赖和异步实现已更换，本次重构以源码/API 兼容为目标，不承诺旧 Poco 版本产生的二进制 ABI 兼容。
 
-```shell
-cd ${cos-cpp-sdk} 
-mkdir -p build 
-cd build 
-cmake .. -DBUILD_DEMO=OFF
-make -j8
-```
-
-#### 4. 测试demo 
-
-如果不需要测试demo，可跳过此步骤。
-
-```shell
-cd ${cos-cpp-sdk} 
-# 如果要编译 Demo, 接下来两个命令必须执行
-cp -R /usr/local/include/Poco ./third_party/include/
-cp /usr/local/lib/libPoco* ./third_party/lib/linux/poco/
-
-vim demo/cos_demo.cpp  #修改demo中的存储桶名以及测试代码
-
-cd build && make #编译demo
-ls bin/cos_demo #生成的可执行文件在bin目录
-vim bin/config.json #修改密钥和园区
-./bin/cos_demo #运行demon
-# 编译 SDK
-mkdir build 
-cd build 
-cmake .. 
-make -j8
-
-ls bin/cos_demo #生成的可执行文件在bin目录
-vim bin/config.json #修改密钥和园区
-./bin/cos_demo #运行demon
-```
-
-#### 5. 使用SDK 
-
-编译生成的库文件在build/lib目录中，静态库名称为`libcossdk.a`， 动态库名称为`libcossdk-shared.so`。使用时请将库文件和 include 目录拷贝至您的工程中，同时参考第 4 步将依赖的 Poco 库文件和头文件复制到您的工程的对应目录中，使得 SDK 能找到这些文件include 路径下。
-
-
-### 编译 Windows 版本 SDK
-
-#### 1. 安装 visual studio 2017
-
-安装 visual studio 2017 开发环境。
-
-#### 2. 安装 CMake 工具
-
-从 [CMake官网](https://cmake.org/download/) 下载 Windows 版本的 CMake 编译工具，并将 `${CMake的安装路径}\bin`，配置在 Windows 的系统环境变量 Path 中。
-
-#### 3. 安装 OpenSSL
-从 [OpenSSL官网](https://slproweb.com/products/Win32OpenSSL.html) 下载 Windows 版本的 OpenSSL，并安装。
-
-#### 4. 编译并安装 Poco
-> Poco 版本推荐使用 1.9.4，当 OpenSSL 版本大于 1.0 版本时，推荐使用 1.12.4 版本。
-
-```shell
-# 下载 Poco 源码并解压
-wget https://github.com/pocoproject/poco/archive/refs/tags/poco-${version}-release.zip
-unzip poco-${version}-release.zip # 解压
-# 进入 Poco 主目录并执行编译
-cd poco-poco-${version}-release
-./configure --omit=Data/MySQL,Data/ODBC
-mkdir cmake-build
-cd cmake-build
-cmake ..
-cmake --build . --config Release --target install -j8
-```
-> 编译成功后，会得到 Poco 的动态链接库和静态库，分别位于 cmake-build/bin 和 cmake-build/lib 中。执行 cmake .. 时可以通过指定 -DCMAKE_INSTALL_PREFIX=${自定义安装目录} 来设置安装目录，默认安装到 C:\Program Files (x86)\Poco 目录。
-
-#### 5. 编译SDK 
-
-i. 下载 [XML C++ SDK 源码](https://github.com/tencentyun/cos-cpp-sdk-v5) 到您的开发环境。
-
-ii. 打开 Windows 的命令行，cd 到 C++ SDK 的源码目录下，执行命令
-
-```shell
-mkdir build
-cd build
-# cmake .. #生成 Win32 makefile
-cmake -G "Visual Studio 15 2017 Win64" .. -DBUILD_DEMO=OFF # 生成 Win64 makefile, 不编译 demo
-```
-
-iii. 使用 visual studio 2017 打开解决方案，进行编译。
-
-#### 6. 测试demo 
-
-> 如果不需要测试demo，可跳过此步骤。
-
-修改demo代码，并编译，生成的cos_demo.exe在bin目录中，修改bin/config.json可运行cos_demo.exe。
-
-```shell
-# 复制 openssl 动态链接库和静态库到指定目录
-cp ${OpenSSL安装目录}/bin/libcrypto-*.dll ${SDK目录}/third_party/lib/${target}/openssl/
-cp ${OpenSSL安装目录}/bin/libssl-*.dll ${SDK目录}/third_party/lib/${target}/openssl/
-cp ${OpenSSL安装目录}/lib/VC/${target}/MD/openssl.lib ${SDK目录}/third_party/lib/${target}/openssl/
-cp ${OpenSSL安装目录}/lib/VC/${target}/MD/libssl.lib ${SDK目录}/third_party/lib/${target}/openssl/
-cp ${OpenSSL安装目录}/lib/VC/${target}/MD/libcrypto.lib ${SDK目录}/third_party/lib/${target}/
-# 复制 poco 的动态链接库和静态库到指定目录
-cp ${Poco安装目录}/bin/Poco*.dll ${SDK目录}/third_party/lib/${target}/poco/
-cp ${Poco安装目录}/lib/Poco*.lib ${SDK目录}/third_party/lib/${target}/poco/
-# 复制相关头文件到指定文件
-cp -R ${OpenSSL安装路径}/include/openssl ${SDK目录}/third_party/include/
-cp -R ${Poco安装目录}/include/Poco ${SDK目录}/third_party/include/
-# 开始编译
-cd build
-# cmake .. #生成 Win32 makefile
-cmake -G "Visual Studio 15 2017 Win64" .. -DBUILD_DEMO=ON # 默认编译 demo，—DBUILD_DEMO=ON 可以不指定
-```
-
-#### 5. 使用SDK 
-
-编译生成的库文件在build/Release目录中，静态库名称为`cossdk.lib`。使用时请将库文件和 include 目录拷贝至您的工程中，同时参考第 6 步将依赖的 OpenSSL 和 Poco 库文件和头文件复制到您的工程的对应目录中，使得 SDK 能找到这些文件include 路径下。
-
-
-### 编译 Mac 版本 SDK
-
-#### 1. 安装编译工具及依赖库
-```shell
-brew install gcc make cmake openssl
-```
-
-#### 2. 编译并安装 Poco 库
-
-> Poco 版本推荐使用 1.9.4，当 OpenSSL 版本大于 1.0 版本时，推荐使用 1.12.4 版本。
-
-```shell
-# 下载 Poco 源码并解压
-wget https://github.com/pocoproject/poco/archive/refs/tags/poco-${version}-release.zip
-unzip poco-${version}-release.zip # 解压
-# 进入 Poco 主目录并执行编译
-cd poco-poco-${version}-release
-./configure --omit=Data/MySQL,Data/ODBC
-mkdir cmake-build
-cd cmake-build
-cmake ..
-cmake --build . --config Release -j8
-sudo cmake --build . --target install
-```
-
-> 上述命令执行完成后会将 Poco 动态库安装到 /usr/local/lib 目录中，所有头文件会被复制到 /usr/local/include/Poco 目录中，在生产环境使用时，请将库文件和头文件拷贝至您的工程中，保证程序能找到对应的动态库和头文件。
-
-
-#### 3. 编译SDK 
-
-下载 [XML C++ SDK 源码](https://github.com/tencentyun/cos-cpp-sdk-v5) 到您的开发环境，并执行以下命令：
-
-```shell
-cd ${cos-cpp-sdk} 
-mkdir -p build 
-cd build 
-cmake .. -DBUILD_DEMO=OFF # 不编译 demo
-make
-```
-
-#### 4. 测试demo 
-
-如果不需要测试demo，可跳过此步骤。
-
-修改demo代码，并编译，生成的cos_demo在bin目录中，修改bin/config.json可运行cos_demo。
-
-```shell
-# 复制 Poco 的动态链接库和静态库到指定目录
-cp /usr/local/lib/libPoco* ${SDK目录}/third_party/lib/macOS/poco/
-# 复制相关头文件到指定文件
-cp -R /usr/local/include/Poco ${SDK目录}/third_party/include/
-# 开始编译
-cd build
-cmake .. -DBUILD_DEMO=ON # 默认编译 demo，—DBUILD_DEMO=ON 可以不指定
-make -j8
-```
-
-#### 5. 使用SDK 
-
-编译生成的库文件在build/lib目录中，静态库名称为`libcossdk.a`， 动态库名称为`libcossdk-shared.dylib`。使用时请将库文件和 include 目录拷贝至您的工程中，同时参考第 4 步将依赖的 Poco 库文件和头文件复制到您的工程的对应目录中，使得 SDK 能找到这些文件include 路径下。
-
-
-### 常见编译问题
-
-1. 编译可执行程序的时候提示错误:
-
-   PocoCrypto.so.64: undefined reference to `PEM_write_bio_PrivateKey@libcrypto.so.10'
-   libPocoNetSSL.so.64: undefined reference to `X509_check_host@libcrypto.so.10'
-   ibPocoCrypto.so.64: undefined reference to `ECDSA_sign@OPENSSL_1.0.1_EC'
-   libPocoCrypto.so.64: undefined reference to `CRYPTO_set_id_callback@libcrypto.so.10'
-   ibPocoCrypto.so.64: undefined reference to `EVP_PKEY_id@libcrypto.so.10'
-   libPocoNetSSL.so.64: undefined reference to `SSL_get1_session@libssl.so.10'
-   libPocoNetSSL.so.64: undefined reference to `SSL_get_shutdown@libssl.so.10'
-   libPocoCrypto.so.64: undefined reference to `EVP_PKEY_set1_RSA@libcrypto.so.10'
-   libPocoCrypto.so.64: undefined reference to `SSL_load_error_strings@libssl.so.10'
-
-   这种情况一般是工程里自带的poco库的编译依赖的ssl版本与客户机器上的版本不一致导致的，需要用户重新编译poco库，并替换掉third_party里的poco库。
-
-```shell
-wget https://github.com/pocoproject/poco/archive/refs/tags/poco-1.9.4-release.zip
-cd poco-poco-1.9.4-release/
-./configure --omit=Data/ODBC,Data/MySQL
-mkdir my_build
-cd my_build
-cmake .. 
-make -j5
-```
-
-2. 编译poco库的时候无法编译出PocoNetSSL库，一般是因为机器没装openssl-devel库
-
-```shell
-yum install -y openssl-devel
-```
-
-3. 编译可执行程序的时候提示错误：
-
-   undefined reference to `qcloud_cos::CosConfig::CosConfig(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)
-
-   这种情况一般是因为工程自带的libcossdk.a编译使用的gcc版本与客户机器上的gcc版本不一致导致的，需要客户重新编译poco库和libcossdk。
-
-## 开始使用
-
-下面为您介绍如何使用 COS C++ SDK 完成一个基础操作，如初始化客户端、创建存储桶、查询存储桶列表、上传对象、查询对象列表、下载对象和删除对象。
-
->? 关于文章中出现的 SecretId、SecretKey、Bucket 等名称的含义和获取方式请参见 [COS 术语信息](https://cloud.tencent.com/document/product/436/7751#.E6.9C.AF.E8.AF.AD.E4.BF.A1.E6.81.AF)。
->
-
-### 初始化
-
-配置文件各字段介绍：
-
-```
-"SecretId":"********************************",  // sercret_id替换为用户的 SecretId，登录访问管理控制台查看密钥，https://console.cloud.tencent.com/cam/capi
-"SecretKey":"*******************************", // sercret_key替换为用户的 SecretKey，登录访问管理控制台查看密钥，https://console.cloud.tencent.com/cam/capi
-"Region":"ap-guangzhou",                 // 存储桶地域, 替换为客户存储桶所在地域，可以在COS控制台指定存储桶的概览页查看存储桶地域信息，参考 https://console.cloud.tencent.com/cos5/bucket/ ，关于地域的详情见 https://cloud.tencent.com/document/product/436/6224
-"SignExpiredTime":360,              // 签名超时时间, 单位s
-"ConnectTimeoutInms":6000,          // connect超时时间, 单位ms
-"ReceiveTimeoutInms":60000,         // recv超时时间, 单位ms
-"UploadPartSize":10485760,          // 上传文件分片大小，1M~5G, 默认为10M
-"UploadCopyPartSize":20971520,      // 上传复制文件分片大小，5M~5G, 默认为20M
-"UploadThreadPoolSize":5,           // 单文件分块上传线程池大小
-"DownloadSliceSize":4194304,        // 下载文件分片大小
-"DownloadThreadPoolSize":5,         // 单文件下载线程池大小
-"AsynThreadPoolSize":2,             // 异步上传下载线程池大小
-"LogoutType":1,                     // 日志输出类型,0:不输出,1:输出到屏幕,2输出到syslog
-"LogLevel":3,                       // 日志级别:1: ERR, 2: WARN, 3:INFO, 4:DBG
-"IsDomainSameToHost":false,         // 是否使用专有的host
-"DestDomain":"",                    // 特定host
-"IsUseIntranet":false,              // 是否使用特定ip和端口号
-"IntranetAddr":""                   // 特定ip和端口号,例如“127.0.0.1:80”               
-```
-
-### 使用自定义域名访问 COS
-
-在 config.json 中增加如下配置：
-
-```cpp
-"IsDomainSameToHost":true,
-"DestDomain":"mydomain.com",
-```
-
-### 使用临时密钥访问 COS
-
-```cpp
-#include "cos_api.h"
-#include "cos_sys_config.h"
-#include "cos_defines.h"
-int main(int argc, char *argv[]) {
-    qcloud_cos::CosConfig config("./config.json");
-    // 如果使用永久密钥不需要填入token，如果使用临时密钥需要填入，临时密钥生成和使用指引参见https://cloud.tencent.com/document/product/436/14048
-    config.SetTmpToken("xxx");
-    qcloud_cos::CosAPI cos(config);
-}
-```
-
-### 自定义Log回调
-
-```cpp
-#include "cos_api.h"
-#include "cos_sys_config.h"
-#include "cos_defines.h"
-void TestLogCallback(const std::string& log) {
-    std::ofstream ofs;
-    ofs.open("test.log", std::ios_base::app);
-    ofs << log;
-    ofs.close();
-}
-int main(int argc, char** argv) {
-    qcloud_cos::CosConfig config("./config.json");
-    config.SetLogCallback(&TestLogCallback);
-    qcloud_cos::CosAPI cos(config);
-}
-```
-
-### 创建存储桶
-
-```cpp
-#include "cos_api.h"
-#include "cos_sys_config.h"
-#include "cos_defines.h"
-
-int main(int argc, char *argv[]) {
-    // 1. 指定配置文件路径，初始化 CosConfig
-    qcloud_cos::CosConfig config("./config.json");
-    qcloud_cos::CosAPI cos(config);
-    
-    // 2. 构造创建存储桶的请求
-    std::string bucket_name = "examplebucket-1250000000"; // Bucket名称
-    qcloud_cos::PutBucketReq req(bucket_name);
-    qcloud_cos::PutBucketResp resp;
-    
-    // 3. 调用创建存储桶接口
-    qcloud_cos::CosResult result = cos.PutBucket(req, &resp);
-    
-    // 4. 处理调用结果
-    if (result.IsSucc()) {
-        // 创建成功
-    } else {
-        // 创建存储桶失败，可以调用 CosResult 的成员函数输出错误信息，例如 requestID 等
-        std::cout << "ErrorInfo=" << result.GetErrorMsg() << std::endl;
-        std::cout << "HttpStatus=" << result.GetHttpStatus() << std::endl;
-        std::cout << "ErrorCode=" << result.GetErrorCode() << std::endl;
-        std::cout << "ErrorMsg=" << result.GetErrorMsg() << std::endl;
-        std::cout << "ResourceAddr=" << result.GetResourceAddr() << std::endl;
-        std::cout << "XCosRequestId=" << result.GetXCosRequestId() << std::endl;
-        std::cout << "XCosTraceId=" << result.GetXCosTraceId() << std::endl;
-    }
-}
-
-```
-
-### 查询存储桶列表
-
-```cpp
-#include "cos_api.h"
-#include "cos_sys_config.h"
-#include "cos_defines.h"
-
-int main(int argc, char *argv[]) {
-    // 1. 指定配置文件路径，初始化 CosConfig
-    qcloud_cos::CosConfig config("./config.json");
-    qcloud_cos::CosAPI cos(config);
-    
-    // 2. 构造查询存储桶列表的请求
-    qcloud_cos::GetServiceReq req;
-    qcloud_cos::GetServiceResp resp;
-    qcloud_cos::CosResult result = cos.GetService(req, &resp);
-    
-    // 3. 获取响应信息
-    const qcloud_cos::Owner& owner = resp.GetOwner();
-    const std::vector<qcloud_cos::Bucket>& buckets = resp.GetBuckets();
-    std::cout << "owner.m_id=" << owner.m_id << ", owner.display_name=" << owner.m_display_name << std::endl;
-    
-    for (std::vector<qcloud_cos::Bucket>::const_iterator itr = buckets.begin(); itr != buckets.end(); ++itr) {
-        const qcloud_cos::Bucket& bucket = *itr;
-        std::cout << "Bucket name=" << bucket.m_name << ", location="
-            << bucket.m_location << ", create_date=" << bucket.m_create_date << std::endl;
-    }
-    
-    // 4. 处理调用结果
-    if (result.IsSucc()) {
-        // 查询存储桶列表成功
-    } else {
-        // 查询存储桶列表失败，可以调用 CosResult 的成员函数输出错误信息，比如 requestID 等
-        std::cout << "ErrorInfo=" << result.GetErrorMsg() << std::endl;
-        std::cout << "HttpStatus=" << result.GetHttpStatus() << std::endl;
-        std::cout << "ErrorCode=" << result.GetErrorCode() << std::endl;
-        std::cout << "ErrorMsg=" << result.GetErrorMsg() << std::endl;
-        std::cout << "ResourceAddr=" << result.GetResourceAddr() << std::endl;
-        std::cout << "XCosRequestId=" << result.GetXCosRequestId() << std::endl;
-        std::cout << "XCosTraceId=" << result.GetXCosTraceId() << std::endl;
-    }
-}
-```
-
-### 上传对象
-
-```cpp
-#include "cos_api.h"
-#include "cos_sys_config.h"
-#include "cos_defines.h"
-
-int main(int argc, char *argv[]) {
-    // 1. 指定配置文件路径，初始化 CosConfig
-    qcloud_cos::CosConfig config("./config.json");
-    qcloud_cos::CosAPI cos(config);
-    
-    // 2. 构造上传文件的请求
-    std::string bucket_name = "examplebucket-1250000000"; // 上传的目的 Bucket 名称
-    std::string object_name = "exampleobject"; //exampleobject 即为对象键（Key），是对象在存储桶中的唯一标识。例如，在对象的访问域名 examplebucket-1250000000.cos.ap-guangzhou.myqcloud.com/doc/pic.jpg 中，对象键为 doc/pic.jpg。
-    // request 的构造函数中需要传入本地文件路径
-    qcloud_cos::PutObjectByFileReq req(bucket_name, object_name, "/path/to/local/file");
-    req.SetXCosStorageClass("STANDARD_IA")； // 调用 Set 方法设置元数据等
-    qcloud_cos::PutObjectByFileResp resp;
-    
-    // 3. 调用上传文件接口
-    qcloud_cos::CosResult result = cos.PutObject(req, &resp);
-    
-    // 4. 处理调用结果
-    if (result.IsSucc()) {
-        // 上传文件成功
-    } else {
-        // 上传文件失败，可以调用 CosResult 的成员函数输出错误信息，比如 requestID 等
-        std::cout << "ErrorInfo=" << result.GetErrorMsg() << std::endl;
-        std::cout << "HttpStatus=" << result.GetHttpStatus() << std::endl;
-        std::cout << "ErrorCode=" << result.GetErrorCode() << std::endl;
-        std::cout << "ErrorMsg=" << result.GetErrorMsg() << std::endl;
-        std::cout << "ResourceAddr=" << result.GetResourceAddr() << std::endl;
-        std::cout << "XCosRequestId=" << result.GetXCosRequestId() << std::endl;
-        std::cout << "XCosTraceId=" << result.GetXCosTraceId() << std::endl;
-    }
-}
-```
-
-### 查询对象列表
-
-```cpp
-#include "cos_api.h"
-#include "cos_sys_config.h"
-#include "cos_defines.h"
-
-int main(int argc, char *argv[]) {
-    // 1. 指定配置文件路径，初始化 CosConfig
-    qcloud_cos::CosConfig config("./config.json");
-    qcloud_cos::CosAPI cos(config);
-    
-    // 2. 构造查询对象列表的请求
-    std::string bucket_name = "examplebucket-1250000000"; // 上传的目标存储桶名称
-    qcloud_cos::GetBucketReq req(bucket_name);
-    qcloud_cos::GetBucketResp resp;
-    qcloud_cos::CosResult result = cos.GetBucket(req, &resp);   
-    
-    std::vector<qcloud_cos::Content> cotents = resp.GetContents();
-    for (std::vector<qcloud_cos::Content>::const_iterator itr = cotents.begin(); itr != cotents.end(); ++itr) {
-    	const qcloud_cos::Content& content = *itr;
-        std::cout << "key name=" << content.m_key << ", lastmodified ="
-            << content.m_last_modified << ", size=" << content.m_size << std::endl;
-    }
-    
-    // 3. 处理调用结果
-    if (result.IsSucc()) {
-        // 查询对象列表成功
-    } else {
-        // 查询对象列表失败，可以调用 CosResult 的成员函数输出错误信息，例如 requestID 等
-        std::cout << "ErrorInfo=" << result.GetErrorMsg() << std::endl;
-        std::cout << "HttpStatus=" << result.GetHttpStatus() << std::endl;
-        std::cout << "ErrorCode=" << result.GetErrorCode() << std::endl;
-        std::cout << "ErrorMsg=" << result.GetErrorMsg() << std::endl;
-        std::cout << "ResourceAddr=" << result.GetResourceAddr() << std::endl;
-        std::cout << "XCosRequestId=" << result.GetXCosRequestId() << std::endl;
-        std::cout << "XCosTraceId=" << result.GetXCosTraceId() << std::endl;
-    }
-}
-```
-
-### 下载对象
-
-```cpp
-#include "cos_api.h"
-#include "cos_sys_config.h"
-#include "cos_defines.h"
-
-int main(int argc, char *argv[]) {
-    // 1. 指定配置文件路径，初始化 CosConfig
-    qcloud_cos::CosConfig config("./config.json");
-    qcloud_cos::CosAPI cos(config);
-    
-    // 2. 构造下载对象的请求
-    std::string bucket_name = "examplebucket-1250000000"; // 上传的目的 Bucket 名称
-    std::string object_name = "exampleobject"; // exampleobject 即为对象键（Key），是对象在存储桶中的唯一标识。例如，在对象的访问域名 examplebucket-1250000000.cos.ap-guangzhou.myqcloud.com/doc/pic.jpg 中，对象键为 doc/pic.jpg。
-    std::string local_path = "/tmp/exampleobject";
-    // request 需要提供 appid、bucketname、object,以及本地的路径（包含文件名）
-    qcloud_cos::GetObjectByFileReq req(bucket_name, object_name, local_path);
-    qcloud_cos::GetObjectByFileResp resp;
-    
-    // 3. 调用下载对象接口
-    qcloud_cos::CosResult result = cos.GetObject(req, &resp);
-    
-    // 4. 处理调用结果
-    if (result.IsSucc()) {
-        // 下载文件成功
-    } else {
-        // 下载文件失败，可以调用 CosResult 的成员函数输出错误信息，例如 requestID 等
-        std::cout << "ErrorInfo=" << result.GetErrorMsg() << std::endl;
-        std::cout << "HttpStatus=" << result.GetHttpStatus() << std::endl;
-        std::cout << "ErrorCode=" << result.GetErrorCode() << std::endl;
-        std::cout << "ErrorMsg=" << result.GetErrorMsg() << std::endl;
-        std::cout << "ResourceAddr=" << result.GetResourceAddr() << std::endl;
-        std::cout << "XCosRequestId=" << result.GetXCosRequestId() << std::endl;
-        std::cout << "XCosTraceId=" << result.GetXCosTraceId() << std::endl;
-    }
-}
-```
-
-### 删除对象
-
-```cpp
-#include "cos_api.h"
-#include "cos_sys_config.h"
-#include "cos_defines.h"
-
-int main(int argc, char *argv[]) {
-    // 1. 指定配置文件路径，初始化 CosConfig
-    qcloud_cos::CosConfig config("./config.json");
-    qcloud_cos::CosAPI cos(config);
-    
-    // 2. 构造删除对象的请求
-    std::string bucket_name = "examplebucket-1250000000"; // 上传的目标存储桶名称
-    std::string object_name = "exampleobject"; // exampleobject 即为对象键（Key），是对象在存储桶中的唯一标识。例如，在对象的访问域名 examplebucket-1250000000.cos.ap-guangzhou.myqcloud.com/doc/pic.jpg 中，对象键为 doc/pic.jpg。
-    // 3. 调用删除对象接口
-	qcloud_cos::DeleteObjectReq req(bucket_name, object_name);
-	qcloud_cos::DeleteObjectResp resp;
-	qcloud_cos::CosResult result = cos.DeleteObject(req, &resp); 
-    
-    // 4. 处理调用结果
-    if (result.IsSucc()) {
-        // 删除对象成功
-    } else {
-        // 删除对象失败，可以调用 CosResult 的成员函数输出错误信息，例如 requestID 等
-        std::cout << "ErrorInfo=" << result.GetErrorMsg() << std::endl;
-        std::cout << "HttpStatus=" << result.GetHttpStatus() << std::endl;
-        std::cout << "ErrorCode=" << result.GetErrorCode() << std::endl;
-        std::cout << "ErrorMsg=" << result.GetErrorMsg() << std::endl;
-        std::cout << "ResourceAddr=" << result.GetResourceAddr() << std::endl;
-        std::cout << "XCosRequestId=" << result.GetXCosRequestId() << std::endl;
-        std::cout << "XCosTraceId=" << result.GetXCosTraceId() << std::endl;
-    }
-}
-```
+完整重构说明见 [`SDK_REFACTOR_SUMMARY.md`](SDK_REFACTOR_SUMMARY.md)，接口参考见 [`cos-cpp-sdk.md`](cos-cpp-sdk.md)，版本记录见 [`CHANGELOG.md`](CHANGELOG.md)。

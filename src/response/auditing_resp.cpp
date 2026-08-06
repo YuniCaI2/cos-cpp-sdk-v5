@@ -2,6 +2,7 @@
 
 #include "cos_params.h"
 #include "cos_sys_config.h"
+#include "rapidxml/1.13/rapidxml.hpp"
 #include "util/string_util.h"
 
 namespace qcloud_cos {

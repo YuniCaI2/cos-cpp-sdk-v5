@@ -11,7 +11,6 @@
 #include <map>
 #include <string>
 
-#include "Poco/Runnable.h"
 #include "cos_config.h"
 #include "trsf/transfer_handler.h"
 #include "util/base_op_util.h"
@@ -20,7 +19,7 @@
 
 namespace qcloud_cos {
 
-class FileDownTask : public Poco::Runnable {
+class FileDownTask {
  public:
   FileDownTask(const std::string& host, 
                const std::string& path, 

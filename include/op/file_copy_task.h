@@ -5,13 +5,12 @@
 #include <map>
 #include <string>
 
-#include "Poco/Runnable.h"
 #include "cos_defines.h"
 #include "util/base_op_util.h"
 
 namespace qcloud_cos {
 
-class FileCopyTask : public Poco::Runnable {
+class FileCopyTask {
  public:
   FileCopyTask(const std::string& host,
                const std::string& path,

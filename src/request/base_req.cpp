@@ -8,6 +8,8 @@
 #include "request/base_req.h"
 
 #include "cos_sys_config.h"
+#include "rapidxml/1.13/rapidxml.hpp"
+#include "rapidxml/1.13/rapidxml_print.hpp"
 
 namespace qcloud_cos {
 

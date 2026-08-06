@@ -10,11 +10,9 @@
 #include <iostream>
 #include <sstream>
 
-#include "Poco/DigestStream.h"
-#include "Poco/MD5Engine.h"
-#include "Poco/StreamCopier.h"
 #include "cos_defines.h"
 #include "cos_sys_config.h"
+#include "internal/crypto_util.h"
 #include "util/codec_util.h"
 #include "util/crc64.h"
 #include "util/string_util.h"
@@ -116,13 +114,9 @@ std::wstring FileUtil::GetWideCharFilePath(const std::string file_path) {
 #endif
 
 std::string FileUtil::GetFileMd5(const std::string& file) {
-  std::ifstream ifs(file);
-  Poco::MD5Engine md5;
-  Poco::DigestOutputStream md5_dos(md5);
-  Poco::StreamCopier::copyStream(ifs, md5_dos);
-  ifs.close();
-  md5_dos.close();
-  return Poco::DigestEngine::digestToHex(md5.digest());
+  std::ifstream ifs(file, std::ios::in | std::ios::binary);
+  if (!ifs.is_open()) return "";
+  return internal::Md5Hex(ifs);
 }
 
 }  // namespace qcloud_cos

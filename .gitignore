@@ -1,6 +1,8 @@
 .idea
 .github
 .git
-.vscode
+.vscode/*
+!.vscode/settings.json
 build/*
+build-*/
 cmake-build-debug/*

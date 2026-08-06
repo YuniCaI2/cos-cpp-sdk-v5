@@ -8,6 +8,8 @@
 #include <iostream>
 #include <thread>
 
+#include "rapidxml/1.13/rapidxml.hpp"
+
 #include "cos_sys_config.h"
 #include "gtest/gtest.h"
 #include "util/test_utils.h"
@@ -310,7 +312,11 @@ TEST(UtilTest, StringUtilTest) {
   {
     std::string env_var_name = "TEST_ENV_VAR";
     std::string env_var_value = "Hello, world!";
+#if defined(_WIN32)
+    _putenv_s(env_var_name.c_str(), env_var_value.c_str());
+#else
     setenv(env_var_name.c_str(), env_var_value.c_str(), 1);
+#endif
 
     // 测试存在的环境变量
     std::string actual1 = TestUtils::GetEnvVar(env_var_name);
@@ -323,7 +329,11 @@ TEST(UtilTest, StringUtilTest) {
     EXPECT_EQ(expected2, actual2);
 
     // 清理环境变量
+#if defined(_WIN32)
+    _putenv_s(env_var_name.c_str(), "");
+#else
     unsetenv(env_var_name.c_str());
+#endif
   }
   #if defined(__linux__)
   {

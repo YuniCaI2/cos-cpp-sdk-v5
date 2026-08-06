@@ -13,9 +13,7 @@
 
 #include "cos_config.h"
 #include "cos_defines.h"
-#include "rapidxml/1.13/rapidxml.hpp"
-#include "rapidxml/1.13/rapidxml_print.hpp"
-#include "rapidxml/1.13/rapidxml_utils.hpp"
+#include "rapidxml_fwd.h"
 #include "response/base_resp.h"
 
 namespace qcloud_cos {
@@ -411,7 +409,7 @@ class GetBucketWebsiteResp : public BaseResp {
   GetBucketWebsiteResp() {}
   virtual ~GetBucketWebsiteResp() {}
   virtual bool ParseFromXmlString(const std::string& body);
-  bool ParseFromXmlRoutingRule(rapidxml::xml_node<>* node,
+  bool ParseFromXmlRoutingRule(rapidxml::xml_node<char>* node,
                                RoutingRule& tmp_routingrule);
 
   void SetSuffix(const std::string& suffix) { m_suffix = suffix; }
@@ -512,11 +510,11 @@ class GetBucketInventoryResp : public BaseResp {
 
   const Inventory& GetInventory() const { return m_inventory; }
 
-  bool ParseFromXmlOptionalFields(rapidxml::xml_node<>* node,
+  bool ParseFromXmlOptionalFields(rapidxml::xml_node<char>* node,
                                   Inventory& temp_inventory);
-  bool ParseFromXmlCOSBucketDestination(rapidxml::xml_node<>* node,
+  bool ParseFromXmlCOSBucketDestination(rapidxml::xml_node<char>* node,
                                         Inventory& temp_inventory);
-  bool ParseFromXmlInventoryConfiguration(rapidxml::xml_node<>* node,
+  bool ParseFromXmlInventoryConfiguration(rapidxml::xml_node<char>* node,
                                           Inventory& temp_inventory);
 
   virtual bool ParseFromXmlString(const std::string& body);

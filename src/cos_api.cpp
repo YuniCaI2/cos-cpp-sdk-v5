@@ -1,8 +1,11 @@
 ﻿#include "cos_api.h"
-#include "Poco/Net/HTTPSStreamFactory.h"
-#include "Poco/Net/HTTPStreamFactory.h"
-#include "Poco/Net/SSLManager.h"
-#include "Poco/TaskManager.h"
+#include <condition_variable>
+#include <functional>
+#include <mutex>
+#include <queue>
+#include <thread>
+#include <utility>
+#include <vector>
 #include "cos_sys_config.h"
 #include "trsf/async_context.h"
 #include "trsf/async_task.h"
@@ -10,15 +13,81 @@
 namespace qcloud_cos {
 
 bool CosAPI::s_init = false;
-bool CosAPI::s_poco_init = false;
 int CosAPI::s_cos_obj_num = 0;
 std::mutex g_init_lock;
 
-Poco::TaskManager& GetGlobalTaskManager() {
-  static Poco::ThreadPool async_thread_pool("aysnc_pool", 2, CosSysConfig::GetAsynThreadPoolSize());
-  static Poco::TaskManager task_manager(async_thread_pool);
-  return task_manager;
+namespace {
+
+class AsyncExecutor {
+ public:
+  explicit AsyncExecutor(size_t worker_count) : m_stopping(false) {
+    if (worker_count == 0) {
+      worker_count = 1;
+    }
+    m_workers.reserve(worker_count);
+    for (size_t i = 0; i < worker_count; ++i) {
+      m_workers.emplace_back([this]() { WorkerLoop(); });
+    }
+  }
+
+  ~AsyncExecutor() {
+    {
+      std::lock_guard<std::mutex> lock(m_mutex);
+      m_stopping = true;
+    }
+    m_condition.notify_all();
+    for (std::thread& worker : m_workers) {
+      if (worker.joinable()) {
+        worker.join();
+      }
+    }
+  }
+
+  void Start(std::function<void()> task) {
+    {
+      std::lock_guard<std::mutex> lock(m_mutex);
+      m_tasks.push(std::move(task));
+    }
+    m_condition.notify_one();
+  }
+
+ private:
+  void WorkerLoop() {
+    while (true) {
+      std::function<void()> task;
+      {
+        std::unique_lock<std::mutex> lock(m_mutex);
+        m_condition.wait(lock, [this]() {
+          return m_stopping || !m_tasks.empty();
+        });
+        if (m_stopping && m_tasks.empty()) {
+          return;
+        }
+        task = std::move(m_tasks.front());
+        m_tasks.pop();
+      }
+      try {
+        task();
+      } catch (...) {
+        // SDK operations publish failures through their result/handler.
+        // A callback exception must not terminate the process's worker.
+      }
+    }
+  }
+
+  std::mutex m_mutex;
+  std::condition_variable m_condition;
+  std::queue<std::function<void()>> m_tasks;
+  std::vector<std::thread> m_workers;
+  bool m_stopping;
+};
+
+AsyncExecutor& GetAsyncExecutor() {
+  static AsyncExecutor executor(CosSysConfig::GetAsynThreadPoolSize());
+  return executor;
 }
+
+}  // namespace
 
 CosAPI::CosAPI(CosConfig& config)
     : m_config(new CosConfig(config)), m_object_op(m_config),
@@ -35,12 +104,6 @@ int CosAPI::CosInit() {
   std::lock_guard<std::mutex> lock(g_init_lock);
   ++s_cos_obj_num;
   if (!s_init) {
-    if (!s_poco_init) {
-      Poco::Net::HTTPStreamFactory::registerFactory();
-      Poco::Net::HTTPSStreamFactory::registerFactory();
-      Poco::Net::initializeSSL();
-      s_poco_init = true;
-    }
     s_init = true;
   }
 
@@ -530,7 +593,7 @@ SharedAsyncContext CosAPI::AsyncPutObject(const AsyncPutObjectReq& req) {
     PutObjectByFileResp resp;
     m_object_op.PutObject(req, &resp, handler);
   };
-  GetGlobalTaskManager().start(new AsyncTask(std::move(fn)));
+  GetAsyncExecutor().Start(std::move(fn));
   SharedAsyncContext context(new AsyncContext(handler));
   return context;
 }
@@ -543,8 +606,8 @@ SharedAsyncContext CosAPI::AsyncPutObject(const AsyncPutObjectReq& req, Poco::Ta
     PutObjectByFileResp resp;
     m_object_op.PutObject(req, &resp, handler);
   };
-  taskManager = &GetGlobalTaskManager();
-  (*taskManager).start(new AsyncTask(std::move(fn)));
+  taskManager = nullptr;
+  GetAsyncExecutor().Start(std::move(fn));
   SharedAsyncContext context(new AsyncContext(handler));
   return context;
 }
@@ -560,7 +623,7 @@ SharedAsyncContext CosAPI::AsyncPutObject(const AsyncPutObjectByStreamReq& req) 
     PutObjectByStreamResp resp;
     m_object_op.PutObject(req, &resp, handler);
   };
-  GetGlobalTaskManager().start(new AsyncTask(std::move(fn)));
+  GetAsyncExecutor().Start(std::move(fn));
   SharedAsyncContext context(new AsyncContext(handler));
   return context;
 }
@@ -576,8 +639,8 @@ SharedAsyncContext CosAPI::AsyncPutObject(const AsyncPutObjectByStreamReq& req, 
     PutObjectByStreamResp resp;
     m_object_op.PutObject(req, &resp, handler);
   };
-  taskManager = &GetGlobalTaskManager();
-  (*taskManager).start(new AsyncTask(std::move(fn)));
+  taskManager = nullptr;
+  GetAsyncExecutor().Start(std::move(fn));
   SharedAsyncContext context(new AsyncContext(handler));
   return context;
 }
@@ -591,7 +654,7 @@ SharedAsyncContext CosAPI::AsyncMultiPutObject(const AsyncMultiPutObjectReq& req
     MultiPutObjectResp resp;
     m_object_op.MultiUploadObject(req, &resp, handler);
   };
-  GetGlobalTaskManager().start(new AsyncTask(std::move(fn)));
+  GetAsyncExecutor().Start(std::move(fn));
   SharedAsyncContext context(new AsyncContext(handler));
   return context;
 }
@@ -604,8 +667,8 @@ SharedAsyncContext CosAPI::AsyncMultiPutObject(const AsyncMultiPutObjectReq& req
     MultiPutObjectResp resp;
     m_object_op.MultiUploadObject(req, &resp, handler);
   };
-  taskManager = &GetGlobalTaskManager();
-  (*taskManager).start(new AsyncTask(std::move(fn)));
+  taskManager = nullptr;
+  GetAsyncExecutor().Start(std::move(fn));
   SharedAsyncContext context(new AsyncContext(handler));
   return context;
 }
@@ -617,7 +680,7 @@ SharedAsyncContext CosAPI::AsyncGetObject(const AsyncGetObjectReq& req) {
     GetObjectByFileResp resp;
     m_object_op.GetObject(req, &resp, handler);
   };
-  GetGlobalTaskManager().start(new AsyncTask(std::move(fn)));
+  GetAsyncExecutor().Start(std::move(fn));
   SharedAsyncContext context(new AsyncContext(handler));
   return context;
 }
@@ -629,8 +692,8 @@ SharedAsyncContext CosAPI::AsyncGetObject(const AsyncGetObjectReq& req, Poco::Ta
     GetObjectByFileResp resp;
     m_object_op.GetObject(req, &resp, handler);
   };
-  taskManager = &GetGlobalTaskManager();
-  (*taskManager).start(new AsyncTask(std::move(fn)));
+  taskManager = nullptr;
+  GetAsyncExecutor().Start(std::move(fn));
   SharedAsyncContext context(new AsyncContext(handler));
   return context;
 }
@@ -642,7 +705,7 @@ SharedAsyncContext CosAPI::AsyncResumableGetObject(const AsyncGetObjectReq& req)
     GetObjectByFileResp resp;
     m_object_op.ResumableGetObject(req, &resp, handler);
   };
-  GetGlobalTaskManager().start(new AsyncTask(std::move(fn)));
+  GetAsyncExecutor().Start(std::move(fn));
   SharedAsyncContext context(new AsyncContext(handler));
   return context;
 }
@@ -654,8 +717,8 @@ SharedAsyncContext CosAPI::AsyncResumableGetObject(const AsyncGetObjectReq& req,
     GetObjectByFileResp resp;
     m_object_op.ResumableGetObject(req, &resp, handler);
   };
-  taskManager = &GetGlobalTaskManager();
-  (*taskManager).start(new AsyncTask(std::move(fn)));
+  taskManager = nullptr;
+  GetAsyncExecutor().Start(std::move(fn));
   SharedAsyncContext context(new AsyncContext(handler));
   return context;
 }
@@ -667,7 +730,7 @@ SharedAsyncContext CosAPI::AsyncMultiGetObject(const AsyncMultiGetObjectReq& req
     GetObjectByFileResp resp;
     m_object_op.MultiThreadDownload(req, &resp, handler);
   };
-  GetGlobalTaskManager().start(new AsyncTask(std::move(fn)));
+  GetAsyncExecutor().Start(std::move(fn));
   SharedAsyncContext context(new AsyncContext(handler));
   return context;
 }
@@ -679,8 +742,8 @@ SharedAsyncContext CosAPI::AsyncMultiGetObject(const AsyncMultiGetObjectReq& req
     GetObjectByFileResp resp;
     m_object_op.MultiThreadDownload(req, &resp, handler);
   };
-  taskManager = &GetGlobalTaskManager();
-  (*taskManager).start(new AsyncTask(std::move(fn)));
+  taskManager = nullptr;
+  GetAsyncExecutor().Start(std::move(fn));
   SharedAsyncContext context(new AsyncContext(handler));
   return context;
 }

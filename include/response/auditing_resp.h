@@ -5,9 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "rapidxml/1.13/rapidxml.hpp"
-#include "rapidxml/1.13/rapidxml_print.hpp"
-#include "rapidxml/1.13/rapidxml_utils.hpp"
+#include "rapidxml_fwd.h"
 #include "request/auditing_req.h"
 #include "response/object_resp.h"
 
@@ -20,15 +18,15 @@ class AuditingResp: public BaseResp {
   virtual bool ParseFromXmlString(const std::string& body) { UNUSED_PARAM(body); return true;};
 
  protected:
-  static bool ParseSceneResultInfo(rapidxml::xml_node<>* root, SceneResultInfo& scene_result_info);
-  static bool ParseOcrResultInfo(rapidxml::xml_node<>* root, OcrResult& ocr_results);
-  static bool ParseLocation(rapidxml::xml_node<>* root, Location& location);
-  static bool ParseUserInfo(rapidxml::xml_node<>* root, UserInfo& user_info);
-  static bool ParseSegmentResult(rapidxml::xml_node<>* root, SegmentResult& segment_result);
-  static bool ParseResults(rapidxml::xml_node<>* root, Result& result);
-  static bool ParseObjectResults(rapidxml::xml_node<>* root, ObjectResults& object_results);
-  static bool ParseRecognitionResult(rapidxml::xml_node<>* root, RecognitionResult& result);
-  static bool ParseListInfo(rapidxml::xml_node<>* root, ListInfo& list_info);
+  static bool ParseSceneResultInfo(rapidxml::xml_node<char>* root, SceneResultInfo& scene_result_info);
+  static bool ParseOcrResultInfo(rapidxml::xml_node<char>* root, OcrResult& ocr_results);
+  static bool ParseLocation(rapidxml::xml_node<char>* root, Location& location);
+  static bool ParseUserInfo(rapidxml::xml_node<char>* root, UserInfo& user_info);
+  static bool ParseSegmentResult(rapidxml::xml_node<char>* root, SegmentResult& segment_result);
+  static bool ParseResults(rapidxml::xml_node<char>* root, Result& result);
+  static bool ParseObjectResults(rapidxml::xml_node<char>* root, ObjectResults& object_results);
+  static bool ParseRecognitionResult(rapidxml::xml_node<char>* root, RecognitionResult& result);
+  static bool ParseListInfo(rapidxml::xml_node<char>* root, ListInfo& list_info);
 };
 
 class AuditingJobResp : public AuditingResp {
@@ -36,7 +34,7 @@ class AuditingJobResp : public AuditingResp {
   AuditingJobResp() {}
   virtual ~AuditingJobResp() {}
   virtual bool ParseFromXmlString(const std::string& body);
-  virtual bool ParseJobsDetail(rapidxml::xml_node<>* root) { UNUSED_PARAM(root); return true;};
+  virtual bool ParseJobsDetail(rapidxml::xml_node<char>* root) { UNUSED_PARAM(root); return true;};
   std::string GetRequestId() const { return m_request_id; }
 
  protected:
@@ -48,7 +46,7 @@ class ImageAuditingResp : public AuditingJobResp {
   ImageAuditingResp() {}
   virtual ~ImageAuditingResp() {}
   virtual bool ParseFromXmlString(const std::string& body) { UNUSED_PARAM(body); return true; }
-  static bool ParseImageAuditingJobsDetail(rapidxml::xml_node<>* root, ImageAuditingJobsDetail& jobs_detail);
+  static bool ParseImageAuditingJobsDetail(rapidxml::xml_node<char>* root, ImageAuditingJobsDetail& jobs_detail);
 };
 
 class GetImageAuditingResp : public ImageAuditingResp {
@@ -95,7 +93,7 @@ class VideoAuditingResp : public AuditingJobResp {
  public:
   VideoAuditingResp() {}
   virtual ~VideoAuditingResp() {}
-  virtual bool ParseJobsDetail(rapidxml::xml_node<>* root);
+  virtual bool ParseJobsDetail(rapidxml::xml_node<char>* root);
 
   VideoAuditingJobsDetail GetJobsDetail() const { return m_jobs_detail; }
 
@@ -119,7 +117,7 @@ class AudioAuditingResp : public AuditingJobResp {
  public:
   AudioAuditingResp() {}
   virtual ~AudioAuditingResp() {}
-  virtual bool ParseJobsDetail(rapidxml::xml_node<>* root);
+  virtual bool ParseJobsDetail(rapidxml::xml_node<char>* root);
 
   AudioAuditingJobsDetail GetJobsDetail() const { return m_jobs_detail; }
 
@@ -143,7 +141,7 @@ class TextAuditingResp : public AuditingJobResp {
  public:
   TextAuditingResp() {}
   virtual ~TextAuditingResp() {}
-  virtual bool ParseJobsDetail(rapidxml::xml_node<>* root);
+  virtual bool ParseJobsDetail(rapidxml::xml_node<char>* root);
 
   TextAuditingJobsDetail GetJobsDetail() const { return m_jobs_detail; }
 
@@ -167,7 +165,7 @@ class DocumentAuditingResp : public AuditingJobResp {
  public:
   DocumentAuditingResp() {}
   virtual ~DocumentAuditingResp() {}
-  virtual bool ParseJobsDetail(rapidxml::xml_node<>* root);
+  virtual bool ParseJobsDetail(rapidxml::xml_node<char>* root);
 
   DocumentAuditingJobsDetail GetJobsDetail() const { return m_jobs_detail; }
 
@@ -191,7 +189,7 @@ class WebPageAuditingResp : public AuditingJobResp {
  public:
   WebPageAuditingResp() {}
   virtual ~WebPageAuditingResp() {}
-  virtual bool ParseJobsDetail(rapidxml::xml_node<>* root);
+  virtual bool ParseJobsDetail(rapidxml::xml_node<char>* root);
 
   WebPageAuditingJobsDetail GetJobsDetail() const { return m_jobs_detail; }
 

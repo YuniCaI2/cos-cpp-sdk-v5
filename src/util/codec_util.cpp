@@ -8,9 +8,7 @@
 #include <iostream>
 #include <string>
 
-#include "Poco/HMACEngine.h"
-#include "Poco/MD5Engine.h"
-#include "Poco/SHA1Engine.h"
+#include "internal/crypto_util.h"
 #include "util/file_util.h"
 
 namespace qcloud_cos {
@@ -100,17 +98,11 @@ std::string CodecUtil::Base64Encode(const std::string& plain_text) {
 
 std::string CodecUtil::HmacSha1Hex(const std::string& plain_text,
                                    const std::string& key) {
-  Poco::HMACEngine<Poco::SHA1Engine> hmac_engine(key);
-  hmac_engine.update(plain_text);
-  return Poco::DigestEngine::digestToHex(hmac_engine.digest());
+  return internal::HmacSha1Hex(plain_text, key);
 }
 
 std::string CodecUtil::RawMd5(const std::string& plainText) {
-  Poco::MD5Engine md5_engine;
-  md5_engine.update(plainText);
-  Poco::DigestEngine::Digest digest = md5_engine.digest();
-  std::string raw_md5(digest.begin(), digest.end());
-  return raw_md5;
+  return internal::Md5Raw(plainText);
 }
 
 // convert a hexadecimal string to binary value

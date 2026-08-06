@@ -1,16 +1,16 @@
 #pragma once
+#include <ctime>
 #include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
-#include "Poco/Net/DNS.h"
-#include "Poco/Net/HostEntry.h"
 #include "lru_cache.h"
 
 namespace qcloud_cos {
 
 struct HostEntryCache {
-  Poco::Net::HostEntry host_entry;
+  std::vector<std::string> addresses;
   time_t cache_ts;
 };
 

@@ -1,13 +1,48 @@
-project(cos-cpp-sdk-ut)
+option(BUILD_LEGACY_INTEGRATION_TESTS
+  "Build the old network-heavy tests and their optional Poco test server"
+  OFF
+)
 
-file(GLOB common_src src/test_utils.cpp)
-file(GLOB object_request_test_src src/object_request_test.cpp)
-file(GLOB object_response_test_src src/object_response_test.cpp)
-file(GLOB bucket_response_test_src src/bucket_response_test.cpp)
-file(GLOB util_test_src src/util_test.cpp)
-# object_op_test 已拆分为多个文件
-set(object_op_test_common_src src/object_op_test_common.cpp)
-set(object_op_test_src
+if(NOT TARGET GTest::gtest_main)
+  find_package(GTest CONFIG QUIET)
+  if(NOT GTest_FOUND)
+    find_package(GTest REQUIRED)
+  endif()
+endif()
+
+set(COS_TEST_INCLUDE_DIRS
+  "${CMAKE_CURRENT_SOURCE_DIR}/src"
+  "${PROJECT_SOURCE_DIR}/include"
+)
+
+function(add_cos_test target_name)
+  add_executable(${target_name} ${ARGN})
+  target_compile_features(${target_name} PRIVATE cxx_std_17)
+  if(MSVC)
+    target_compile_options(${target_name} PRIVATE /utf-8)
+  endif()
+  target_include_directories(${target_name} PRIVATE ${COS_TEST_INCLUDE_DIRS})
+  target_link_libraries(${target_name} PRIVATE cos::cossdk GTest::gtest_main)
+  add_test(NAME ${target_name} COMMAND ${target_name})
+endfunction()
+
+# Fast tests that exercise request/response serialization and utility code do
+# not need the legacy test server or its dependency graph.
+add_cos_test(cos-cpp-sdk-unit-tests
+  src/object_request_test.cpp
+  src/object_response_test.cpp
+  src/bucket_response_test.cpp
+  src/util_test.cpp
+  src/auditing_req_test.cpp
+)
+
+if(BUILD_LEGACY_INTEGRATION_TESTS)
+  find_package(Poco CONFIG REQUIRED
+    COMPONENTS Foundation Util XML JSON Net NetSSL Crypto
+  )
+
+  set(COS_LEGACY_TEST_SOURCES
+    src/test_utils.cpp
     src/object_op_test_common.cpp
     src/object_basic_op_test.cpp
     src/object_multipart_test.cpp
@@ -15,67 +50,28 @@ set(object_op_test_src
     src/object_media_test.cpp
     src/object_auditing_test.cpp
     src/object_misc_test.cpp
-)
-file(GLOB object_op_retry_test_src src/object_op_retry_test.cpp)
-file(GLOB bucket_op_test_src src/bucket_op_test.cpp)
-file(GLOB live_channel_test_src src/live_channel_test.cpp)
-file(GLOB async_op_test_src src/async_op_test.cpp)
-file(GLOB auditing_req_test_src src/auditing_req_test.cpp)
-file(GLOB resumable_upload_test_src src/resumable_upload_test.cpp)
+    src/object_op_retry_test.cpp
+    src/bucket_op_test.cpp
+    src/live_channel_test.cpp
+    src/async_op_test.cpp
+    src/resumable_upload_test.cpp
+  )
+  add_cos_test(all-test ${COS_LEGACY_TEST_SOURCES})
+  target_link_libraries(all-test PRIVATE
+    Poco::NetSSL
+    Poco::Net
+    Poco::Crypto
+    Poco::Util
+    Poco::JSON
+    Poco::XML
+    Poco::Foundation
+  )
 
-set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR}/bin)
-link_directories(${POCO_LINK_DIR} ${GTEST_LINK_DIR}) #这一行要放到add_executable前面
-include_directories(${GTEST_INCLUDE_DIS} ${CMAKE_SOURCE_DIR}/include/ ${POCO_INCLUDE_DIR} ${UT_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src)
-add_executable(object-request-test ${object_request_test_src} ${common_src})
-target_link_libraries(object-request-test cossdk ${POCO_LIBS} ${OPENSSL_LIBS} ${SYSTEM_LIBS} ${GTEST_LIBS})
-
-add_executable(object-response-test ${object_response_test_src} ${common_src})
-target_link_libraries(object-response-test cossdk ${POCO_LIBS} ${OPENSSL_LIBS} ${SYSTEM_LIBS} ${GTEST_LIBS})
-
-add_executable(bucket-response-test ${bucket_response_test_src} ${common_src})
-target_link_libraries(bucket-response-test cossdk ${POCO_LIBS} ${OPENSSL_LIBS} ${SYSTEM_LIBS} ${GTEST_LIBS})
-
-add_executable(util-test ${util_test_src} ${common_src})
-target_link_libraries(util-test cossdk ${POCO_LIBS} ${OPENSSL_LIBS} ${SYSTEM_LIBS} ${GTEST_LIBS})
-
-add_executable(object-op-test ${object_op_test_src} ${common_src})
-target_link_libraries(object-op-test cossdk ${POCO_LIBS} ${OPENSSL_LIBS} ${SYSTEM_LIBS} ${GTEST_LIBS})
-
-add_executable(object-op-retry-test ${object_op_retry_test_src} ${common_src})
-target_link_libraries(object-op-retry-test cossdk ${POCO_LIBS} ${OPENSSL_LIBS} ${SYSTEM_LIBS} ${GTEST_LIBS})
-
-add_executable(bucket-op-test ${bucket_op_test_src} ${common_src})
-target_link_libraries(bucket-op-test cossdk ${POCO_LIBS} ${OPENSSL_LIBS} ${SYSTEM_LIBS} ${GTEST_LIBS})
-
-add_executable(live-channel-test ${live_channel_test_src} ${common_src})
-target_link_libraries(live-channel-test cossdk ${POCO_LIBS} ${OPENSSL_LIBS} ${SYSTEM_LIBS} ${GTEST_LIBS})
-
-add_executable(async-op-test ${async_op_test_src} ${common_src})
-target_link_libraries(async-op-test cossdk ${POCO_LIBS} ${OPENSSL_LIBS} ${SYSTEM_LIBS} ${GTEST_LIBS})
-
-add_executable(auditing-req-test ${auditing_req_test_src} ${common_src})
-target_link_libraries(auditing-req-test cossdk ${POCO_LIBS} ${OPENSSL_LIBS} ${SYSTEM_LIBS} ${GTEST_LIBS})
-
-add_executable(resumable-upload-test ${resumable_upload_test_src} ${common_src})
-target_link_libraries(resumable-upload-test cossdk ${POCO_LIBS} ${OPENSSL_LIBS} ${SYSTEM_LIBS} ${GTEST_LIBS})
-
-# coverage option
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fprofile-arcs -ftest-coverage")
-
-add_executable(all-test
-        ${object_request_test_src}
-        ${object_response_test_src}
-        ${bucket_response_test_src}
-        ${util_test_src}
-        ${object_op_test_src}
-        ${object_op_retry_test_src}
-        ${bucket_op_test_src}
-        ${live_channel_test_src}
-        ${async_op_test_src}
-        ${auditing_req_test_src}
-        ${resumable_upload_test_src}
-        ${common_src})
-target_link_libraries(all-test cossdk ${POCO_LIBS} ${OPENSSL_LIBS} ${SYSTEM_LIBS} ${GTEST_LIBS})
-
-file(COPY conf/config.json DESTINATION ${EXECUTABLE_OUTPUT_PATH}/)
+  if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/conf/config.json")
+    add_custom_command(TARGET all-test POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/conf/config.json"
+        "$<TARGET_FILE_DIR:all-test>/config.json"
+    )
+  endif()
+endif()

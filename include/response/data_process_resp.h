@@ -4,9 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "rapidxml/1.13/rapidxml.hpp"
-#include "rapidxml/1.13/rapidxml_print.hpp"
-#include "rapidxml/1.13/rapidxml_utils.hpp"
+#include "rapidxml_fwd.h"
 #include "request/data_process_req.h"
 #include "response/object_resp.h"
 
@@ -22,11 +20,11 @@ class ImageRespBase : virtual public BaseResp {
 
   UploadResult GetUploadResult() const { return m_upload_result; }
 
-  static bool ParseObject(rapidxml::xml_node<>* root, Object& object);
-  static bool ParseQRcodeInfo(rapidxml::xml_node<>* root, QRcodeInfo& qr_code);
+  static bool ParseObject(rapidxml::xml_node<char>* root, Object& object);
+  static bool ParseQRcodeInfo(rapidxml::xml_node<char>* root, QRcodeInfo& qr_code);
 
  protected:
-  bool ParseOriginalInfo(rapidxml::xml_node<>* root);
+  bool ParseOriginalInfo(rapidxml::xml_node<char>* root);
   UploadResult m_upload_result;
 };
 
@@ -64,7 +62,7 @@ class DescribeDocProcessBucketsResp : public BaseResp {
 
   DocBucketResponse GetResult() const { return m_result; }
 
-  static bool ParseBucketInfo(rapidxml::xml_node<>* root,
+  static bool ParseBucketInfo(rapidxml::xml_node<char>* root,
                               BucketInfo& bucket_info);
 
  private:
@@ -102,10 +100,10 @@ class DocProcessJobBase : public BaseResp {
   JobsDetail GetJobsDetail() const { return m_jobs_detail; }
 
  protected:
-  bool ParseJobsDetail(rapidxml::xml_node<>* root, JobsDetail& jobs_detail);
-  bool ParseOperation(rapidxml::xml_node<>* root, Operation& operation);
-  bool ParseDocProcess(rapidxml::xml_node<>* root, DocProcess& doc_process);
-  bool ParseDocProcessResult(rapidxml::xml_node<>* root,
+  bool ParseJobsDetail(rapidxml::xml_node<char>* root, JobsDetail& jobs_detail);
+  bool ParseOperation(rapidxml::xml_node<char>* root, Operation& operation);
+  bool ParseDocProcess(rapidxml::xml_node<char>* root, DocProcess& doc_process);
+  bool ParseDocProcessResult(rapidxml::xml_node<char>* root,
                              DocProcessResult& doc_process_result);
 
  private:
@@ -146,9 +144,9 @@ class QueuesBase : public BaseResp {
   virtual ~QueuesBase() {}
 
  protected:
-  bool ParseNonExistPIDs(rapidxml::xml_node<>* root,
+  bool ParseNonExistPIDs(rapidxml::xml_node<char>* root,
                          NonExistPIDs& non_exist_pids);
-  bool ParseQueueList(rapidxml::xml_node<>* root, QueueList& queue_list);
+  bool ParseQueueList(rapidxml::xml_node<char>* root, QueueList& queue_list);
 };
 
 class DescribeQueuesResp : public QueuesBase {
@@ -280,10 +278,10 @@ class GetMediaInfoResp : public BaseResp {
   GetMediaInfoResult GetResult() const { return m_result; }
 
  private:
-  bool ParseVideo(rapidxml::xml_node<>* root, VideoInfo& video_info);
-  bool ParseAudio(rapidxml::xml_node<>* root, AudioInfo& audio_info);
-  bool ParseSubtitle(rapidxml::xml_node<>* root, SubtitleInfo& subtitle_info);
-  bool ParseFormat(rapidxml::xml_node<>* root, FormatInfo& format_info);
+  bool ParseVideo(rapidxml::xml_node<char>* root, VideoInfo& video_info);
+  bool ParseAudio(rapidxml::xml_node<char>* root, AudioInfo& audio_info);
+  bool ParseSubtitle(rapidxml::xml_node<char>* root, SubtitleInfo& subtitle_info);
+  bool ParseFormat(rapidxml::xml_node<char>* root, FormatInfo& format_info);
 
   GetMediaInfoResult m_result;
 };
@@ -326,31 +324,31 @@ class DataProcessJobBase : public BaseResp {
   virtual bool ParseFromXmlString(const std::string& body);
   JobsDetails GetJobsDetail() const { return m_jobs_detail; }
  protected:
-  static bool ParseTranscode(rapidxml::xml_node<>* root, Transcode& transcode);
-  static bool ParseAudioMix(rapidxml::xml_node<>* root, AudioMix& audio_mix);
-  static bool ParseVideo(rapidxml::xml_node<>* root, Video& video);
-  static bool ParseTimeInterval(rapidxml::xml_node<>* root, TimeInterval& time_interval);
-  static bool ParseContainer(rapidxml::xml_node<>* root, Container& container);
-  static bool ParseAudio(rapidxml::xml_node<>* root, Audio& audio);
-  static bool ParseTransConfig(rapidxml::xml_node<>* root, TransConfig& trans_config);
-  static bool ParseSnapshot(rapidxml::xml_node<>* root, Snapshot& snapshot);
-  static bool ParseWatermark(rapidxml::xml_node<>* root, Watermark& watermark);
-  static bool ParseMediaResult(rapidxml::xml_node<>* root, MediaResult& media_result);
-  static bool ParseOutput(rapidxml::xml_node<>* root, Output& output);
-  static bool ParseRemoveWatermark(rapidxml::xml_node<>* root, RemoveWatermark& remove_watermark);
-  static bool ParseSubtitles(rapidxml::xml_node<>* root, Subtitles& subtitles);
-  static bool ParseFileUncompressConfig(rapidxml::xml_node<>* root, FileUncompressConfig& file_uncompress_config);
-  static bool ParseFileUncompressResult(rapidxml::xml_node<>* root, FileUncompressResult& file_uncompress_result);
-  static bool ParseAnimation(rapidxml::xml_node<>* root, Animation& animation);
-  static bool ParseInput(rapidxml::xml_node<>* root, Input& input);
-  static bool ParseSmartCover(rapidxml::xml_node<>* root, SmartCover& smartcover);
-  static bool ParseConcat(rapidxml::xml_node<>* root, Concat& concat);
-  static bool ParseConcatFragment(rapidxml::xml_node<>* root, ConcatFragment& concat_fragment);
-  static bool ParseDigitalWatermark(rapidxml::xml_node<>* root, DigitalWatermark& digital_watermark);
-  static bool ParseExtractDigitalWatermark(rapidxml::xml_node<>* root, ExtractDigitalWatermark& extract_digital_watermark);
-  static bool ParseVideoMontage(rapidxml::xml_node<>* root, VideoMontage& video_montage);
-  static bool ParseVoiceSeparate(rapidxml::xml_node<>* root, VoiceSeparate& voice_separate);
-  static bool ParseSegment(rapidxml::xml_node<>* root, Segment& segment);
+  static bool ParseTranscode(rapidxml::xml_node<char>* root, Transcode& transcode);
+  static bool ParseAudioMix(rapidxml::xml_node<char>* root, AudioMix& audio_mix);
+  static bool ParseVideo(rapidxml::xml_node<char>* root, Video& video);
+  static bool ParseTimeInterval(rapidxml::xml_node<char>* root, TimeInterval& time_interval);
+  static bool ParseContainer(rapidxml::xml_node<char>* root, Container& container);
+  static bool ParseAudio(rapidxml::xml_node<char>* root, Audio& audio);
+  static bool ParseTransConfig(rapidxml::xml_node<char>* root, TransConfig& trans_config);
+  static bool ParseSnapshot(rapidxml::xml_node<char>* root, Snapshot& snapshot);
+  static bool ParseWatermark(rapidxml::xml_node<char>* root, Watermark& watermark);
+  static bool ParseMediaResult(rapidxml::xml_node<char>* root, MediaResult& media_result);
+  static bool ParseOutput(rapidxml::xml_node<char>* root, Output& output);
+  static bool ParseRemoveWatermark(rapidxml::xml_node<char>* root, RemoveWatermark& remove_watermark);
+  static bool ParseSubtitles(rapidxml::xml_node<char>* root, Subtitles& subtitles);
+  static bool ParseFileUncompressConfig(rapidxml::xml_node<char>* root, FileUncompressConfig& file_uncompress_config);
+  static bool ParseFileUncompressResult(rapidxml::xml_node<char>* root, FileUncompressResult& file_uncompress_result);
+  static bool ParseAnimation(rapidxml::xml_node<char>* root, Animation& animation);
+  static bool ParseInput(rapidxml::xml_node<char>* root, Input& input);
+  static bool ParseSmartCover(rapidxml::xml_node<char>* root, SmartCover& smartcover);
+  static bool ParseConcat(rapidxml::xml_node<char>* root, Concat& concat);
+  static bool ParseConcatFragment(rapidxml::xml_node<char>* root, ConcatFragment& concat_fragment);
+  static bool ParseDigitalWatermark(rapidxml::xml_node<char>* root, DigitalWatermark& digital_watermark);
+  static bool ParseExtractDigitalWatermark(rapidxml::xml_node<char>* root, ExtractDigitalWatermark& extract_digital_watermark);
+  static bool ParseVideoMontage(rapidxml::xml_node<char>* root, VideoMontage& video_montage);
+  static bool ParseVoiceSeparate(rapidxml::xml_node<char>* root, VoiceSeparate& voice_separate);
+  static bool ParseSegment(rapidxml::xml_node<char>* root, Segment& segment);
 
 
  private:

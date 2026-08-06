@@ -6,9 +6,7 @@
 #include <string>
 
 #include "cos_defines.h"
-#include "rapidxml/1.13/rapidxml.hpp"
-#include "rapidxml/1.13/rapidxml_print.hpp"
-#include "rapidxml/1.13/rapidxml_utils.hpp"
+#include "rapidxml_fwd.h"
 
 namespace qcloud_cos {
 
@@ -40,7 +38,7 @@ class StringUtil {
    *
    * @return 返回转换后的string
    */
-  static std::string XmlToString(const rapidxml::xml_document<>& xml_doc);
+  static std::string XmlToString(const rapidxml::xml_document<char>& xml_doc);
 
   /**
    * @brief 将string转换为xml
@@ -50,7 +48,7 @@ class StringUtil {
    *
    * @return 转换成功返回true,否则返回false
    */
-  static bool StringToXml(char* xml_str, rapidxml::xml_document<>* doc);
+  static bool StringToXml(char* xml_str, rapidxml::xml_document<char>* doc);
 
   /**
    * @brief 把uint64_t类型的num转换成std::string,长度为8个字节

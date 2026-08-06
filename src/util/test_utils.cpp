@@ -11,10 +11,7 @@
 #include <unistd.h>
 #endif
 
-#include "Poco/DigestStream.h"
-#include "Poco/MD5Engine.h"
-#include "Poco/SHA1Engine.h"
-#include "Poco/StreamCopier.h"
+#include "internal/crypto_util.h"
 
 namespace qcloud_cos {
 
@@ -43,35 +40,21 @@ std::string TestUtils::GetRandomString(unsigned len) {
 }
 
 std::string TestUtils::CalcFileMd5(const std::string& file) {
-  std::ifstream ifs(file);
-  Poco::MD5Engine md5;
-  Poco::DigestOutputStream md5_dos(md5);
-  Poco::StreamCopier::copyStream(ifs, md5_dos);
-  ifs.close();
-  md5_dos.close();
-  return Poco::DigestEngine::digestToHex(md5.digest());
+  std::ifstream ifs(file, std::ios::in | std::ios::binary);
+  if (!ifs.is_open()) return "";
+  return internal::Md5Hex(ifs);
 }
 
 std::string TestUtils::CalcStreamMd5(std::istream& is) {
-  Poco::MD5Engine md5;
-  Poco::DigestOutputStream md5_dos(md5);
-  Poco::StreamCopier::copyStream(is, md5_dos);
-  md5_dos.close();
-  return Poco::DigestEngine::digestToHex(md5.digest());
+  return internal::Md5Hex(is);
 }
 
 std::string TestUtils::CalcStringMd5(const std::string& str) {
-  Poco::MD5Engine md5;
-  md5.update(str);
-  return Poco::DigestEngine::digestToHex(md5.digest());
+  return internal::Md5Hex(str);
 }
 
 std::string TestUtils::CalcStreamSHA1(std::istream& is) {
-  Poco::SHA1Engine sha1;
-  Poco::DigestOutputStream sha1_dos(sha1);
-  Poco::StreamCopier::copyStream(is, sha1_dos);
-  sha1_dos.close();
-  return Poco::DigestEngine::digestToHex(sha1.digest());
+  return internal::Sha1Hex(is);
 }
 
 std::string TestUtils::GetEnvVar(const std::string& env_var_name) {

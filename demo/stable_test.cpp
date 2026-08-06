@@ -5,7 +5,11 @@
 #include <sys/stat.h>
 
 #include <iostream>
+#include <chrono>
+#include <condition_variable>
 #include <map>
+#include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>

@@ -236,19 +236,13 @@ bool GetBucketReplicationResp::ParseFromXmlString(const std::string& body) {
       ReplicationRule rule;
       for (; rule_node != NULL; rule_node = rule_node->next_sibling()) {
         const std::string& rule_node_name = rule_node->name();
-        if (rule_node->first_node() &&
-            rule_node->first_node()->type() == rapidxml::node_data) {
-          if (rule_node_name == kBucketReplicationStatus) {
-            rule.m_is_enable =
-                (std::string(rule_node->value()) == "Enabled") ? true : false;
-          } else if (rule_node_name == kBucketReplicationID) {
-            rule.m_id = rule_node->value();
-          } else if (rule_node_name == kBucketReplicationPrefix) {
-            rule.m_prefix = rule_node->value();
-          } else {
-            SDK_LOG_WARN("Unknown field in rule node, field_name=[%s]",
-                         rule_node_name.c_str());
-          }
+        if (rule_node_name == kBucketReplicationStatus) {
+          rule.m_is_enable =
+              (std::string(rule_node->value()) == "Enabled") ? true : false;
+        } else if (rule_node_name == kBucketReplicationID) {
+          rule.m_id = rule_node->value();
+        } else if (rule_node_name == kBucketReplicationPrefix) {
+          rule.m_prefix = rule_node->value();
         } else if (rule_node_name == kBucketReplicationDestination) {
           rapidxml::xml_node<>* dest_node = rule_node->first_node();
           for (; dest_node != NULL; dest_node = dest_node->next_sibling()) {

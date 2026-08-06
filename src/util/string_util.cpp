@@ -8,9 +8,14 @@
 #include <iostream>
 #include <sstream>
 
-#if defined(WIN32)
+#include "rapidxml/1.13/rapidxml.hpp"
+#include "rapidxml/1.13/rapidxml_print.hpp"
+
+#if defined(_WIN32)
 #define strncasecmp _strnicmp
 #define strcasecmp _stricmp
+#else
+#include <strings.h>
 #endif
 
 namespace qcloud_cos {

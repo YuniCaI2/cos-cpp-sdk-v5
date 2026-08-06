@@ -1,0 +1,71 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "ninja",
+      "displayName": "Ninja + MSVC",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "BUILD_DEMO": "OFF",
+        "BUILD_UNITTEST": "ON"
+      }
+    },
+    {
+      "name": "default",
+      "displayName": "Ninja + MSVC (default)",
+      "inherits": "ninja"
+    },
+    {
+      "name": "windows-vs",
+      "displayName": "Visual Studio 2026 (x64)",
+      "generator": "Visual Studio 18 2026",
+      "architecture": "x64",
+      "toolset": "host=x64",
+      "binaryDir": "${sourceDir}/build-vs",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "BUILD_DEMO": "OFF",
+        "BUILD_UNITTEST": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "ninja",
+      "configurePreset": "ninja"
+    },
+    {
+      "name": "default",
+      "configurePreset": "default"
+    },
+    {
+      "name": "windows-vs",
+      "configurePreset": "windows-vs",
+      "configuration": "Release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "ninja",
+      "configurePreset": "ninja",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "default",
+      "configurePreset": "default",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

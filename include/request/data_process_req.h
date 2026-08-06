@@ -4,10 +4,10 @@
 #include <string>
 #include <vector>
 
-#include "Poco/Dynamic/Struct.h"
-#include "Poco/JSON/Object.h"
+#include "rapidxml_fwd.h"
 #include "request/bucket_req.h"
 #include "request/object_req.h"
+#include "util/json_util.h"
 
 namespace qcloud_cos {
 
@@ -294,27 +294,24 @@ class PicOperation {
   void TurnOffPicInfo() { is_pic_info = false; }
 
   std::string GenerateJsonString() const {
-    Poco::JSON::Object::Ptr json_root = new Poco::JSON::Object();
-    if (is_pic_info) {
-      json_root->set("is_pic_info", 1);
-    } else {
-      json_root->set("is_pic_info", 0);
-    }
-
-    Poco::JSON::Array rules_array;
-    for (auto& it : rules) {
-      Poco::JSON::Object::Ptr rule = new Poco::JSON::Object();
-      if (!it.bucket.empty()) {
-        rule->set("bucket", it.bucket);
-      }
-      rule->set("fileid", it.fileid);
-      rule->set("rule", it.rule);
-      rules_array.add(rule);
-    }
-
-    json_root->set("rules", rules_array);
     std::ostringstream oss;
-    Poco::JSON::Stringifier::stringify(json_root, oss);
+    oss << "{\"is_pic_info\":" << (is_pic_info ? 1 : 0)
+        << ",\"rules\":[";
+    for (size_t i = 0; i < rules.size(); ++i) {
+      const PicRules& rule = rules[i];
+      if (i != 0) oss << ',';
+      oss << '{';
+      bool has_field = false;
+      if (!rule.bucket.empty()) {
+        oss << "\"bucket\":" << JsonUtil::EscapeJsonString(rule.bucket);
+        has_field = true;
+      }
+      if (has_field) oss << ',';
+      oss << "\"fileid\":" << JsonUtil::EscapeJsonString(rule.fileid)
+          << ",\"rule\":" << JsonUtil::EscapeJsonString(rule.rule)
+          << '}';
+    }
+    oss << "]}";
     return oss.str();
   }
 
@@ -2151,10 +2148,10 @@ class CreateDataProcessJobsReq : public BucketReq {
   virtual ~CreateDataProcessJobsReq() {}
 
   virtual bool GenerateRequestBody(std::string* body) const;
-  static void GenerateVideoNode(rapidxml::xml_document<>& doc, const Video& video, rapidxml::xml_node<>* video_node);
-  static void GenerateAudioNode(rapidxml::xml_document<>& doc, const Audio& audio, rapidxml::xml_node<>* node);
-  static void GenerateContainerNode(rapidxml::xml_document<>& doc, const Container& container, rapidxml::xml_node<>* node);
-  static void GenerateAudioMixNode(rapidxml::xml_document<>& doc, const AudioMix& audio_mix, rapidxml::xml_node<>* node);
+  static void GenerateVideoNode(rapidxml::xml_document<char>& doc, const Video& video, rapidxml::xml_node<char>* video_node);
+  static void GenerateAudioNode(rapidxml::xml_document<char>& doc, const Audio& audio, rapidxml::xml_node<char>* node);
+  static void GenerateContainerNode(rapidxml::xml_document<char>& doc, const Container& container, rapidxml::xml_node<char>* node);
+  static void GenerateAudioMixNode(rapidxml::xml_document<char>& doc, const AudioMix& audio_mix, rapidxml::xml_node<char>* node);
 
 
 

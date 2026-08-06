@@ -886,7 +886,11 @@ namespace rapidxml
     //! Note that after parse, both name and value of node, if any, will point interior of source text used for parsing. 
     //! Thus, this text must persist in the memory for the lifetime of node.
     //! \param Ch Character type to use.
+#ifdef COS_CPP_SDK_RAPIDXML_FWD_HAS_DEFAULT
+    template<class Ch>
+#else
     template<class Ch = char>
+#endif
     class xml_node: public xml_base<Ch>
     {
 
@@ -1354,7 +1358,11 @@ namespace rapidxml
     //! which are inherited from memory_pool.
     //! To access root node of the document, use the document itself, as if it was an xml_node.
     //! \param Ch Character type to use.
+#ifdef COS_CPP_SDK_RAPIDXML_FWD_HAS_DEFAULT
+    template<class Ch>
+#else
     template<class Ch = char>
+#endif
     class xml_document: public xml_node<Ch>, public memory_pool<Ch>
     {
     

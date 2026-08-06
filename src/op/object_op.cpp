@@ -16,20 +16,13 @@
 #else
 #include <unistd.h>
 #endif
-#ifdef USE_OPENSSL_MD5
-#include <openssl/md5.h>
-#endif
+#include <filesystem>
+#include <thread>
 
-#include "Poco/DigestStream.h"
-#include "Poco/JSON/Parser.h"
-#include "Poco/MD5Engine.h"
-#include "Poco/RecursiveDirectoryIterator.h"
-#include "Poco/SortedDirectoryIterator.h"
-#include "Poco/StreamCopier.h"
-#include "Poco/ThreadPool.h"
 #include "cos_config.h"
-#include "util/json_util.h"
 #include "cos_sys_config.h"
+#include "internal/crypto_util.h"
+#include "internal/json_value.h"
 #include "op/file_copy_task.h"
 #include "op/file_download_task.h"
 #include "op/file_upload_task.h"
@@ -44,6 +37,34 @@
 #include "cos_params.h"
 
 namespace qcloud_cos {
+namespace {
+
+// Tasks are reused by slot, so join a slot before starting its next
+// invocation. This preserves the old sliding-window lifecycle without
+// exposing a thread-pool type in the SDK headers.
+class TaskPool {
+ public:
+  explicit TaskPool(size_t slot_count) : m_threads(slot_count) {}
+
+  template <typename Task>
+  void start(size_t slot, Task& task) {
+    join(slot);
+    m_threads[slot] = std::thread([&task]() { task.run(); });
+  }
+
+  void joinAll() {
+    for (size_t i = 0; i < m_threads.size(); ++i) join(i);
+  }
+
+ private:
+  void join(size_t slot) {
+    if (m_threads[slot].joinable()) m_threads[slot].join();
+  }
+
+  std::vector<std::thread> m_threads;
+};
+
+}  // namespace
 
 bool ObjectOp::IsObjectExist(const std::string& bucket_name,
                              const std::string& object_name) {
@@ -122,16 +143,9 @@ bool ObjectOp::CheckSinglePart(const PutObjectByFileReq& req, uint64_t offset,
   // Print content:
   std::istringstream stringStream(std::string(data, (size_t)local_part_size));
 
-  Poco::MD5Engine md5;
-  Poco::DigestOutputStream dos(md5);
-  Poco::StreamCopier::copyStream(stringStream, dos);
-
-  dos.flush();
-
-  std::string md5_str = Poco::DigestEngine::digestToHex(md5.digest());
+  std::string md5_str = internal::Md5Hex(stringStream);
 
   delete[] data;
-  dos.close();
 
   if (md5_str != etag) {
     return false;
@@ -251,15 +265,15 @@ void ObjectOp::UpdateResumableDownloadTaskFile(
     return;
   }
 
-  Poco::JSON::Object::Ptr json_root = new Poco::JSON::Object();
+  internal::JsonValue json_root = internal::JsonValue::ObjectValue();
   for (auto& it : element_map) {
-    json_root->set(it.first, it.second);
+    json_root.Set(it.first, internal::JsonValue::String(it.second));
   }
   if (resume_offset > 0) {
-    json_root->set(kResumableDownloadResumeOffset,
-                   std::to_string(resume_offset));
+    json_root.Set(kResumableDownloadResumeOffset,
+                  internal::JsonValue::String(std::to_string(resume_offset)));
   }
-  Poco::JSON::Stringifier::stringify(json_root, ofs);
+  ofs << json_root.Serialize();
   ofs.close();
   return;
 }
@@ -272,27 +286,22 @@ bool ObjectOp::CheckResumableDownloadTask(
   if (ifs.good()) {
     SDK_LOG_INFO("resumable task file: %s exists, try to parse",
                  json_file.c_str());
-    Poco::JSON::Parser parser;
-    std::istream& is = ifs;
-    Poco::Dynamic::Var result;
-    try {
-      result = parser.parse(is);
-    } catch (Poco::JSON::JSONException& jsone) {
+    std::ostringstream checkpoint_stream;
+    checkpoint_stream << ifs.rdbuf();
+    internal::JsonValue object;
+    std::string parse_error;
+    if (!internal::JsonValue::Parse(checkpoint_stream.str(), &object,
+                                    &parse_error) || !object.IsObject()) {
       SDK_LOG_ERR("failed to parse resumable task file, error msg: %s",
-                  jsone.message().c_str());
+                  parse_error.c_str());
       return false;
     }
-    if (result.type() != typeid(Poco::JSON::Object::Ptr)) {
-      SDK_LOG_ERR("failed to parse resumable task file:%s", json_file.c_str());
-      return false;
-    }
-
-    Poco::JSON::Object::Ptr object = result.extract<Poco::JSON::Object::Ptr>();
 
     // check all element
     for (auto& it : element_map) {
       std::string task_data_local;
-      if (!JsonUtil::GetStringValue(object, it.first, &task_data_local)) {
+      const internal::JsonValue* field = object.Find(it.first);
+      if (!field || !field->AsString(&task_data_local)) {
         SDK_LOG_ERR("Checkpoint file missing or invalid field: %s", it.first.c_str());
         return false;
       }
@@ -306,8 +315,9 @@ bool ObjectOp::CheckResumableDownloadTask(
     }
     // get last offset
     std::string last_offset_str;
-    if (!JsonUtil::GetStringValue(object, kResumableDownloadResumeOffset,
-                                        &last_offset_str)) {
+    const internal::JsonValue* offset_field =
+        object.Find(kResumableDownloadResumeOffset);
+    if (!offset_field || !offset_field->AsString(&last_offset_str)) {
       SDK_LOG_WARN("Checkpoint file missing or invalid field: %s", kResumableDownloadResumeOffset);
       return false;
     }
@@ -365,14 +375,10 @@ std::string ObjectOp::GenUploadCheckpointFilePath(
     const std::string& object_name) {
   // 基于源文件路径和目标路径的MD5哈希生成唯一文件名
   // 注意：这里使用路径字符串的MD5，而非文件内容MD5，避免大文件计算耗时
-  Poco::MD5Engine md5_src;
-  md5_src.update(local_file_path);
-  std::string src_md5 = Poco::DigestEngine::digestToHex(md5_src.digest());
+  std::string src_md5 = internal::Md5Hex(local_file_path);
 
   std::string dest_path = "cos://" + bucket_name + "/" + object_name;
-  Poco::MD5Engine md5_dest;
-  md5_dest.update(dest_path);
-  std::string dest_md5 = Poco::DigestEngine::digestToHex(md5_dest.digest());
+  std::string dest_md5 = internal::Md5Hex(dest_path);
 
   std::string file_name = src_md5 + "--" + dest_md5 + kResumableUploadTaskFileSuffix;
 
@@ -395,23 +401,29 @@ void ObjectOp::SaveUploadCheckpointFile(
     uint64_t part_size) {
   SDK_LOG_INFO("Save upload checkpoint file: %s", checkpoint_file.c_str());
 
-  Poco::JSON::Object::Ptr json_root = new Poco::JSON::Object(Poco::JSON_PRESERVE_KEY_ORDER);
-  json_root->set(kResumableUploadCheckpointOpType, std::string("ResumableUpload"));
-  json_root->set(kResumableUploadCheckpointUploadId, upload_id);
-  json_root->set(kResumableUploadCheckpointFilePath, local_file_path);
-  json_root->set(kResumableUploadCheckpointBucket, bucket_name);
-  json_root->set(kResumableUploadCheckpointKey, object_name);
-  json_root->set(kResumableUploadCheckpointFileSize, std::to_string(file_size));
-  json_root->set(kResumableUploadCheckpointLastModified, last_modified);
-  json_root->set(kResumableUploadCheckpointPartSize, std::to_string(part_size));
+  internal::JsonValue json_root = internal::JsonValue::ObjectValue();
+  json_root.Set(kResumableUploadCheckpointOpType,
+                internal::JsonValue::String("ResumableUpload"));
+  json_root.Set(kResumableUploadCheckpointUploadId,
+                internal::JsonValue::String(upload_id));
+  json_root.Set(kResumableUploadCheckpointFilePath,
+                internal::JsonValue::String(local_file_path));
+  json_root.Set(kResumableUploadCheckpointBucket,
+                internal::JsonValue::String(bucket_name));
+  json_root.Set(kResumableUploadCheckpointKey,
+                internal::JsonValue::String(object_name));
+  json_root.Set(kResumableUploadCheckpointFileSize,
+                internal::JsonValue::String(std::to_string(file_size)));
+  json_root.Set(kResumableUploadCheckpointLastModified,
+                internal::JsonValue::String(last_modified));
+  json_root.Set(kResumableUploadCheckpointPartSize,
+                internal::JsonValue::String(std::to_string(part_size)));
 
   // 先序列化（不含md5Sum），计算其MD5作为校验
-  std::ostringstream json_ss;
-  Poco::JSON::Stringifier::stringify(json_root, json_ss);
-  Poco::MD5Engine md5_engine;
-  md5_engine.update(json_ss.str());
-  std::string md5sum = Poco::DigestEngine::digestToHex(md5_engine.digest());
-  json_root->set(kResumableUploadCheckpointMd5Sum, md5sum);
+  const std::string json_without_md5 = json_root.Serialize();
+  std::string md5sum = internal::Md5Hex(json_without_md5);
+  json_root.Set(kResumableUploadCheckpointMd5Sum,
+                internal::JsonValue::String(md5sum));
 
   std::string tmp_file = checkpoint_file + ".tmp";
   std::ofstream ofs(tmp_file, std::ios::out | std::ios::binary | std::ios::trunc);
@@ -419,7 +431,7 @@ void ObjectOp::SaveUploadCheckpointFile(
     SDK_LOG_ERR("Failed to save checkpoint file: %s", tmp_file.c_str());
     return;
   }
-  Poco::JSON::Stringifier::stringify(json_root, ofs);
+  ofs << json_root.Serialize();
   ofs.close();
   // 原子替换，避免进程中断导致文件损坏
   if (std::rename(tmp_file.c_str(), checkpoint_file.c_str()) != 0) {
@@ -443,89 +455,69 @@ bool ObjectOp::LoadAndValidateUploadCheckpoint(
     return false;
   }
 
-  Poco::JSON::Parser parser;
-  Poco::Dynamic::Var parse_result;
-  try {
-    parse_result = parser.parse(ifs);
-  } catch (Poco::JSON::JSONException& e) {
-    SDK_LOG_WARN("Failed to parse checkpoint file: %s, error: %s",
-                checkpoint_file.c_str(), e.message().c_str());
-    return false;
-  }
+  std::ostringstream checkpoint_stream;
+  checkpoint_stream << ifs.rdbuf();
   ifs.close();
 
-  if (parse_result.type() != typeid(Poco::JSON::Object::Ptr)) {
+  internal::JsonValue object;
+  std::string parse_error;
+  if (!internal::JsonValue::Parse(checkpoint_stream.str(), &object,
+                                  &parse_error) || !object.IsObject()) {
     SDK_LOG_WARN("Invalid checkpoint file format: %s", checkpoint_file.c_str());
     return false;
   }
 
-  Poco::JSON::Object::Ptr object = parse_result.extract<Poco::JSON::Object::Ptr>();
+  auto get_string = [&object](const char* key, std::string* value) {
+    const internal::JsonValue* field = object.Find(key);
+    if (!field || !field->AsString(value)) {
+      SDK_LOG_WARN("Checkpoint file missing or invalid field: %s", key);
+      return false;
+    }
+    return true;
+  };
 
   // 1. 提取并校验 MD5
   std::string stored_md5;
-  if (!JsonUtil::GetStringValue(object, kResumableUploadCheckpointMd5Sum, &stored_md5)) {
-    SDK_LOG_WARN("Checkpoint file missing or invalid field: %s", kResumableUploadCheckpointMd5Sum);
-    return false;
-  }
+  if (!get_string(kResumableUploadCheckpointMd5Sum, &stored_md5)) return false;
 
   // 逐字段提取到独立变量（只解析一次，后续校验直接复用）
   std::string ckpt_op_type;
-  if (!JsonUtil::GetStringValue(object, kResumableUploadCheckpointOpType, &ckpt_op_type)) {
-    SDK_LOG_WARN("Checkpoint file missing or invalid field: %s", kResumableUploadCheckpointOpType);
-    return false;
-  }
+  if (!get_string(kResumableUploadCheckpointOpType, &ckpt_op_type)) return false;
   std::string ckpt_upload_id;
-  if (!JsonUtil::GetStringValue(object, kResumableUploadCheckpointUploadId, &ckpt_upload_id)) {
-    SDK_LOG_WARN("Checkpoint file missing or invalid field: %s", kResumableUploadCheckpointUploadId);
-    return false;
-  }
+  if (!get_string(kResumableUploadCheckpointUploadId, &ckpt_upload_id)) return false;
   std::string ckpt_file_path;
-  if (!JsonUtil::GetStringValue(object, kResumableUploadCheckpointFilePath, &ckpt_file_path)) {
-    SDK_LOG_WARN("Checkpoint file missing or invalid field: %s", kResumableUploadCheckpointFilePath);
-    return false;
-  }
+  if (!get_string(kResumableUploadCheckpointFilePath, &ckpt_file_path)) return false;
   std::string ckpt_bucket;
-  if (!JsonUtil::GetStringValue(object, kResumableUploadCheckpointBucket, &ckpt_bucket)) {
-    SDK_LOG_WARN("Checkpoint file missing or invalid field: %s", kResumableUploadCheckpointBucket);
-    return false;
-  }
+  if (!get_string(kResumableUploadCheckpointBucket, &ckpt_bucket)) return false;
   std::string ckpt_key;
-  if (!JsonUtil::GetStringValue(object, kResumableUploadCheckpointKey, &ckpt_key)) {
-    SDK_LOG_WARN("Checkpoint file missing or invalid field: %s", kResumableUploadCheckpointKey);
-    return false;
-  }
+  if (!get_string(kResumableUploadCheckpointKey, &ckpt_key)) return false;
   std::string ckpt_size_str;
-  if (!JsonUtil::GetStringValue(object, kResumableUploadCheckpointFileSize, &ckpt_size_str)) {
-    SDK_LOG_WARN("Checkpoint file missing or invalid field: %s", kResumableUploadCheckpointFileSize);
-    return false;
-  }
+  if (!get_string(kResumableUploadCheckpointFileSize, &ckpt_size_str)) return false;
   std::string ckpt_mtime;
-  if (!JsonUtil::GetStringValue(object, kResumableUploadCheckpointLastModified, &ckpt_mtime)) {
-    SDK_LOG_WARN("Checkpoint file missing or invalid field: %s", kResumableUploadCheckpointLastModified);
-    return false;
-  }
+  if (!get_string(kResumableUploadCheckpointLastModified, &ckpt_mtime)) return false;
   std::string ckpt_part_size_str;
-  if (!JsonUtil::GetStringValue(object, kResumableUploadCheckpointPartSize, &ckpt_part_size_str)) {
-    SDK_LOG_WARN("Checkpoint file missing or invalid field: %s", kResumableUploadCheckpointPartSize);
-    return false;
-  }
+  if (!get_string(kResumableUploadCheckpointPartSize, &ckpt_part_size_str)) return false;
 
   // 重建不含md5Sum的JSON，计算MD5
-  Poco::JSON::Object::Ptr verify_obj = new Poco::JSON::Object(Poco::JSON_PRESERVE_KEY_ORDER);
-  verify_obj->set(kResumableUploadCheckpointOpType, ckpt_op_type);
-  verify_obj->set(kResumableUploadCheckpointUploadId, ckpt_upload_id);
-  verify_obj->set(kResumableUploadCheckpointFilePath, ckpt_file_path);
-  verify_obj->set(kResumableUploadCheckpointBucket, ckpt_bucket);
-  verify_obj->set(kResumableUploadCheckpointKey, ckpt_key);
-  verify_obj->set(kResumableUploadCheckpointFileSize, ckpt_size_str);
-  verify_obj->set(kResumableUploadCheckpointLastModified, ckpt_mtime);
-  verify_obj->set(kResumableUploadCheckpointPartSize, ckpt_part_size_str);
+  internal::JsonValue verify_obj = internal::JsonValue::ObjectValue();
+  verify_obj.Set(kResumableUploadCheckpointOpType,
+                 internal::JsonValue::String(ckpt_op_type));
+  verify_obj.Set(kResumableUploadCheckpointUploadId,
+                 internal::JsonValue::String(ckpt_upload_id));
+  verify_obj.Set(kResumableUploadCheckpointFilePath,
+                 internal::JsonValue::String(ckpt_file_path));
+  verify_obj.Set(kResumableUploadCheckpointBucket,
+                 internal::JsonValue::String(ckpt_bucket));
+  verify_obj.Set(kResumableUploadCheckpointKey,
+                 internal::JsonValue::String(ckpt_key));
+  verify_obj.Set(kResumableUploadCheckpointFileSize,
+                 internal::JsonValue::String(ckpt_size_str));
+  verify_obj.Set(kResumableUploadCheckpointLastModified,
+                 internal::JsonValue::String(ckpt_mtime));
+  verify_obj.Set(kResumableUploadCheckpointPartSize,
+                 internal::JsonValue::String(ckpt_part_size_str));
 
-  std::ostringstream verify_ss;
-  Poco::JSON::Stringifier::stringify(verify_obj, verify_ss);
-  Poco::MD5Engine md5_engine;
-  md5_engine.update(verify_ss.str());
-  std::string computed_md5 = Poco::DigestEngine::digestToHex(md5_engine.digest());
+  std::string computed_md5 = internal::Md5Hex(verify_obj.Serialize());
 
   if (computed_md5 != stored_md5) {
     SDK_LOG_WARN("Checkpoint file MD5 mismatch, file may be corrupted: %s",
@@ -776,14 +768,10 @@ CosResult ObjectOp::PutObject(const PutObjectByStreamReq& req,
   std::string md5_str = "";
   if (req.GetHeader("Content-MD5").empty() && req.ShouldComputeContentMd5()) {
     need_check_etag = true;
-    Poco::MD5Engine md5;
-    Poco::DigestOutputStream dos(md5);
     std::streampos pos = is.tellg();
-    Poco::StreamCopier::copyStream(is, dos);
+    md5_str = internal::Md5Hex(is);
     is.clear();
     is.seekg(pos);
-    dos.close();
-    md5_str = Poco::DigestEngine::digestToHex(md5.digest());
     std::string bin_str = CodecUtil::HexToBin(md5_str);
     std::string encode_str = CodecUtil::Base64Encode(bin_str);
     additional_headers.insert(std::make_pair("Content-MD5", encode_str));
@@ -850,14 +838,10 @@ CosResult ObjectOp::PutObject(const PutObjectByFileReq& req,
   std::string md5_str = "";
   if (req.GetHeader("Content-MD5").empty() && req.ShouldComputeContentMd5()) {
     need_check_etag = true;
-    Poco::MD5Engine md5;
-    Poco::DigestOutputStream dos(md5);
     std::streampos pos = ifs.tellg();
-    Poco::StreamCopier::copyStream(ifs, dos);
+    md5_str = internal::Md5Hex(ifs);
     ifs.clear();
     ifs.seekg(pos);
-    dos.close();
-    md5_str = Poco::DigestEngine::digestToHex(md5.digest());
     std::string bin_str = CodecUtil::HexToBin(md5_str);
     std::string encode_str = CodecUtil::Base64Encode(bin_str);
     additional_headers.insert(std::make_pair("Content-MD5", encode_str));
@@ -1338,14 +1322,10 @@ CosResult ObjectOp::UploadPartData(const UploadPartDataReq& req,
   bool is_check_md5 = false;
   std::string md5_str = "";
   if (req.GetHeader("Content-MD5").empty()) {
-    Poco::MD5Engine md5;
-    Poco::DigestOutputStream dos(md5);
     std::streampos pos = is.tellg();
-    Poco::StreamCopier::copyStream(is, dos);
+    md5_str = internal::Md5Hex(is);
     is.clear();
     is.seekg(pos);
-    dos.close();
-    md5_str = Poco::DigestEngine::digestToHex(md5.digest());
     is_check_md5 = true;
     // 默认开启MD5校验
     if (req.ShouldComputeContentMd5()) {
@@ -1661,7 +1641,7 @@ CosResult ObjectOp::Copy(const CopyReq& req, CopyResp* resp, bool change_backup_
       pool_size = max_task_num;
     }
 
-    Poco::ThreadPool tp(pool_size);
+    TaskPool tp(pool_size);
     std::string path = "/" + req.GetObjectName();
     std::string host = CosSysConfig::GetHost(GetAppId(), m_config->GetRegion(),
                                              req.GetBucketName(), change_backup_domain);
@@ -1691,7 +1671,7 @@ CosResult ObjectOp::Copy(const CopyReq& req, CopyResp* resp, bool change_backup_
                      req.GetVerifyCert(), req.GetCaLocation(),
                      req.GetSSLCtxCallback(), req.GetSSLCtxCbData(),
                      ptask, req.SignHeaderHost());
-        tp.start(*ptask);
+        tp.start(task_index, *ptask);
         part_numbers.push_back(part_number);
         ++part_number;
         offset = end + 1;
@@ -1943,13 +1923,13 @@ ObjectOp::MultiThreadDownload(const GetObjectByFileReq& req,
   std::vector<uint64_t> vec_offset;
   vec_offset.resize(pool_size);
 
-  Poco::ThreadPool task_pool(pool_size, pool_size+1);
+  TaskPool task_pool(pool_size);
   uint64_t offset = 0;
   bool task_fail_flag = false;
   unsigned down_sequence = 0;
   bool is_header_set = false;
   // TODO(jackyding) 暂时不校验md5或crc,分块上传的文件etag不是md5
-  // Poco::MD5Engine md5_engine;
+  // The response body is checked by the private EVP adapter when requested.
 
   // 处理所有已完成（TASK_COMPLETED）的任务槽，写入文件并重置为IDLE
   auto process_completed_tasks = [&]() {
@@ -2037,9 +2017,11 @@ ObjectOp::MultiThreadDownload(const GetObjectByFileReq& req,
       semaphore.acquire();
       // 在 tp.start() 之前主动设为 RUNNING，防止 run() 尚未开始时槽位被误判为 IDLE 而重复使用
       ptask->SetTaskRunning();
-      SDK_LOG_DBG("[sliding window] new task started, index=%d, sequence=%" PRIu64 ", offset=%" PRIu64 ", active_tasks=%u",
-                   i, down_sequence, offset, semaphore.get_count());
-      task_pool.start(*ptask);
+      SDK_LOG_DBG("[sliding window] new task started, index=%d, sequence=%" PRIu64
+                  ", offset=%" PRIu64 ", active_tasks=%u",
+                  i, static_cast<uint64_t>(down_sequence), offset,
+                  semaphore.get_count());
+      task_pool.start(i, *ptask);
 
       offset += part_len;
     }
@@ -2062,7 +2044,6 @@ ObjectOp::MultiThreadDownload(const GetObjectByFileReq& req,
   process_completed_tasks();
 
   // 检查object etag与resp body的md5
-  // std::string md5 = Poco::DigestEngine::digestToHex(md5_engine.digest());
   // if (req.CheckMD5() && md5 != objecdt_etag) {
   //    SDK_LOG_ERR("md5 of response body:%s is not equal to object etag:%s",
   //    md5.c_str(), objecdt_etag.c_str()); task_fail_flag = true;
@@ -2191,7 +2172,7 @@ CosResult ObjectOp::MultiThreadUpload(
 
   // maxCapacity 设为 pool_size + 1：release() 之后 run() 返回之前存在短暂时间窗口，
   // 此时线程尚未回到池中，主线程可能再次调用 tp.start()，需要额外一个线程容量
-  Poco::ThreadPool tp(pool_size, pool_size + 1);
+  TaskPool tp(pool_size);
 
   // 记录每个任务槽对应的part_number，用于CRC64按序合并
   std::vector<uint64_t> vec_part_number(pool_size, 0);
@@ -2251,7 +2232,8 @@ CosResult ObjectOp::MultiThreadUpload(
                                         part_buf_info[i].len);
         }
         part_crc64_map[vec_part_number[i]] = part_crc64;
-        SDK_LOG_DBG("Part[%d] Crc64: %" PRIu64, vec_part_number[i], part_crc64);
+        SDK_LOG_DBG("Part[" PRIu64 "] Crc64: %" PRIu64,
+                    static_cast<uint64_t>(vec_part_number[i]), part_crc64);
       }
 
       // 重置任务槽为IDLE，供下一轮复用
@@ -2351,7 +2333,7 @@ CosResult ObjectOp::MultiThreadUpload(
         SDK_LOG_INFO("[sliding window] new upload task started, index=%d, part_number=%" PRIu64
                     ", offset=%" PRIu64 ", active_tasks=%u",
                     i, cur_part_number, offset, semaphore.get_count());
-        tp.start(*ptask);
+        tp.start(i, *ptask);
 
         started_real_task = true;
         offset += read_len;
@@ -2512,9 +2494,10 @@ CosResult ObjectOp::SingleThreadUpload(
           SDK_LOG_DBG("read over");
           break;
         }
-        SDK_LOG_DBG("upload data, part_number=%d, file_size=%" PRIu64
+        SDK_LOG_DBG("upload data, part_number=%" PRIu64 ", file_size=%" PRIu64
                     ", offset=%" PRIu64 ", len=%" PRIu64,
-                    part_number, file_size, offset, read_len);
+                    part_number, file_size, offset,
+                    static_cast<uint64_t>(read_len));
 
         // 提前计算整个文件的crc64，用于整个合并分块完成后做crc64校验
         if (req.CheckCRC64()) {
@@ -2545,14 +2528,6 @@ CosResult ObjectOp::SingleThreadUpload(
           if (req.GetHeader("x-cos-traffic-limit") != "") {
             upload_part_req.SetTrafficLimit(req.GetHeader("x-cos-traffic-limit"));
           }
-
-        #ifdef USE_OPENSSL_MD5
-          // 提前计算Content-MD5
-          unsigned char digest[MD5_DIGEST_LENGTH];
-          MD5((const unsigned char *)file_content_buf, read_len, digest);
-          std::string digest_str((const char*)digest, MD5_DIGEST_LENGTH);
-          upload_part_req.AddHeader("Content-MD5", CodecUtil::Base64Encode(digest_str));
-        #endif
 
           qcloud_cos::UploadPartDataResp upload_part_resp;
           qcloud_cos::CosResult upload_part_result = UploadPartData(upload_part_req, &upload_part_resp);
@@ -3083,7 +3058,7 @@ CosResult ObjectOp::ResumableGetObject(const GetObjectByFileReq& req,
   vec_offset.resize(pool_size);
   // maxCapacity 设为 pool_size + 1：release() 之后 run() 返回之前存在短暂时间窗口，
   // 此时线程尚未回到池中，主线程可能再次调用 tp.start()，需要额外一个线程容量
-  Poco::ThreadPool tp(pool_size, pool_size + 1);
+  TaskPool tp(pool_size);
   // 如果走断点下载，则从resume_offset开始下载
   uint64_t offset = resume_offset;
   bool task_fail_flag = false;
@@ -3206,7 +3181,7 @@ CosResult ObjectOp::ResumableGetObject(const GetObjectByFileReq& req,
       ptask->SetTaskRunning();
       SDK_LOG_DBG("[sliding window] new task started, index=%u, offset=%" PRIu64 ", len=%" PRIu64 ", active_tasks=%u",
           i, offset, part_len, semaphore.get_count());
-      tp.start(*ptask);
+      tp.start(i, *ptask);
 
       offset += part_len;
     }
@@ -3350,15 +3325,26 @@ CosResult ObjectOp::PutObjects(const PutObjectsByDirectoryReq& req,
     return result;
   }
 
-  Poco::Path p(directory_name);
-  Poco::SimpleRecursiveDirectoryIterator dirIterator(p);
-  Poco::SimpleRecursiveDirectoryIterator end;
   std::string file_name;
   std::string object_name;
   std::string bucket_name = req.GetBucketName();
   std::string cos_path = req.GetCosPath();
-  while (dirIterator != end) {
-    file_name = dirIterator->path();
+  std::error_code iterator_error;
+  std::filesystem::recursive_directory_iterator dir_iterator(
+      directory_name, iterator_error);
+  std::filesystem::recursive_directory_iterator end;
+  if (iterator_error) {
+    result.SetErrorMsg("failed to enumerate directory: " +
+                       iterator_error.message());
+    return result;
+  }
+  for (; dir_iterator != end; dir_iterator.increment(iterator_error)) {
+    if (iterator_error) {
+      result.SetErrorMsg("failed to enumerate directory: " +
+                         iterator_error.message());
+      return result;
+    }
+    file_name = dir_iterator->path().string();
     object_name = StringUtil::StringRemovePrefix(file_name, directory_name);
     object_name = cos_path + object_name;
 
@@ -3395,7 +3381,6 @@ CosResult ObjectOp::PutObjects(const PutObjectsByDirectoryReq& req,
       r.m_cos_resp.CopyFrom(put_obj_resp);
     }
     resp->m_succ_put_objs.push_back(r);
-    ++dirIterator;
   }
 
   result.SetSucc();

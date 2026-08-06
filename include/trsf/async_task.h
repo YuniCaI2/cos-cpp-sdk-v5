@@ -1,17 +1,15 @@
 #pragma once
 
 #include <functional>
-
-#include "Poco/Task.h"
-#include "Poco/TaskManager.h"
+#include <utility>
 
 namespace qcloud_cos {
 
 using TaskFunc = std::function<void()>;
 
-class AsyncTask : public Poco::Task {
+class AsyncTask {
  public:
-  explicit AsyncTask(TaskFunc &&f) : Task("AsyncTask"), _f(f) {}
+  explicit AsyncTask(TaskFunc &&f) : _f(std::move(f)) {}
   ~AsyncTask() {}
 
   void runTask() { _f(); }

@@ -1,6 +1,7 @@
 ﻿#include "trsf/transfer_handler.h"
 #include <iostream>
-#include "Poco/Buffer.h"
+#include <cassert>
+#include <vector>
 #include "response/object_resp.h"
 #include "request/object_req.h"
 #include "trsf/async_context.h"
@@ -182,8 +183,11 @@ std::streamsize
 HandleStreamCopier::handleCopyStream(const SharedTransferHandler& handler,
                                      const char *buf, size_t buf_len, std::ostream& ostr,
                                      std::size_t bufferSize) {
-  poco_assert(bufferSize > 0);
-  poco_assert(buf != nullptr);
+  assert(bufferSize > 0);
+  assert(buf != nullptr);
+  if (bufferSize == 0 || buf == nullptr) {
+    return 0;
+  }
 
   std::streamsize len = 0;
   std::streamsize n = static_cast<std::streamsize>(buf_len);
@@ -208,14 +212,17 @@ HandleStreamCopier::handleCopyStream(const SharedTransferHandler& handler,
   return len;
 }
 
-// 代码主要逻辑复制了 Poco::StreamCopier::copyStream(io_tmp, resp_stream) 的代码, 内部加入了客户取消操作的判断逻
+// 这里保留了流复制的原有行为，并在复制过程中加入客户取消操作的判断。
 std::streamsize HandleStreamCopier::handleCopyStream(
     const SharedTransferHandler& handler, std::istream& istr, std::ostream& ostr, std::size_t bufferSize) {
-  poco_assert(bufferSize > 0);
+  assert(bufferSize > 0);
+  if (bufferSize == 0) {
+    return 0;
+  }
 
-  Poco::Buffer<char> buffer(bufferSize);
+  std::vector<char> buffer(bufferSize);
   std::streamsize len = 0;
-  istr.read(buffer.begin(), bufferSize);
+  istr.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
   std::streamsize n = istr.gcount();
   while (n > 0) {
     // 用户取消操作
@@ -224,13 +231,13 @@ std::streamsize HandleStreamCopier::handleCopyStream(
     }
 
     len += n;
-    ostr.write(buffer.begin(), n);
+    ostr.write(buffer.data(), n);
     // update progress
     if (handler) {
       handler->UpdateProgress(n);
     }
     if (istr && ostr) {
-      istr.read(buffer.begin(), bufferSize);
+      istr.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
       n = istr.gcount();
     } else {
       n = 0;

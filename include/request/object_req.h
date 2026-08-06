@@ -6,6 +6,7 @@
 // Description:
 #pragma once
 
+#include <cassert>
 #include <map>
 #include <sstream>
 #include <vector>

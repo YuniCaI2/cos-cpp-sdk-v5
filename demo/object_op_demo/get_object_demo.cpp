@@ -10,6 +10,12 @@
 #include "util/auth_tool.h"
 #include <openssl/ssl.h>
 
+// Windows headers expose GetObject as a GDI macro. Keep the SDK method name
+// intact in this example, which demonstrates the SSL callback API.
+#ifdef GetObject
+#undef GetObject
+#endif
+
 /**
  * 本样例演示了如何使用 COS C++ SDK 进行简单下载和列出
  * 包括：下载到本地文件、下载到流、列出桶下的文件

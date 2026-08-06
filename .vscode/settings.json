@@ -1,0 +1,8 @@
+{
+  "cmake.useCMakePresets": "always",
+  "cmake.useVsDeveloperEnvironment": "always",
+  "cmake.sourceDirectory": "${workspaceFolder}",
+  "cmake.configurePreset": "ninja",
+  "cmake.buildPreset": "ninja",
+  "cmake.configureOnOpen": true
+}

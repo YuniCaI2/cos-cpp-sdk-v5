@@ -9,6 +9,8 @@
 #define BUCKET_REQ_H
 #pragma once
 
+#include <stdexcept>
+
 #include "cos_defines.h"
 #include "request/base_req.h"
 #include "util/string_util.h"

@@ -287,7 +287,7 @@ TEST(BucketRespTest, GetBucketReplicationRespTest) {
 
         EXPECT_EQ(resp.GetRole(), "qcs::cam::uin/12345678:uin/12345678");
 
-        const ReplicationRule& rule = resp.GetRules()[0];
+        const ReplicationRule rule = resp.GetRules()[0];
         EXPECT_TRUE(rule.m_is_enable);
         EXPECT_EQ(rule.m_id, "12345678");
         EXPECT_EQ(rule.m_prefix, "test_prefix");

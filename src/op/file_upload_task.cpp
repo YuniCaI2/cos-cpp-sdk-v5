@@ -1,16 +1,11 @@
 #include "op/file_upload_task.h"
 #include <sstream>
-#include "Poco/DigestStream.h"
-#include "Poco/MD5Engine.h"
-#include "Poco/StreamCopier.h"
+#include "internal/crypto_util.h"
 #include "util/http_sender.h"
 #include "util/string_util.h"
 #include "util/codec_util.h"
 #include "util/crc64.h"
 #include "util/base_op_util.h"
-#ifdef USE_OPENSSL_MD5
-#include <openssl/md5.h>
-#endif
 
 namespace qcloud_cos {
 
@@ -199,20 +194,8 @@ void FileUploadTask::UploadTask() {
   }
   // 没有crc64则默认走md5校验
   else {
-  #ifdef USE_OPENSSL_MD5
-    unsigned char digest[MD5_DIGEST_LENGTH];
-    MD5((const unsigned char *)m_data_buf_ptr, m_data_len, digest);
-    md5_str = CodecUtil::DigestToHex(digest, MD5_DIGEST_LENGTH);
-  #else
-    // 计算上传的md5
-    Poco::MD5Engine md5;
-    std::string body((const char*)m_data_buf_ptr, m_data_len);
-    std::istringstream istr(body);
-    Poco::DigestOutputStream dos(md5);
-    Poco::StreamCopier::copyStream(istr, dos);
-    dos.close();
-    md5_str = Poco::DigestEngine::digestToHex(md5.digest());
-  #endif
+    md5_str = internal::Md5Hex(std::string(
+        reinterpret_cast<const char*>(m_data_buf_ptr), m_data_len));
     SDK_LOG_DBG("Part Md5: %s", md5_str.c_str());
   }
 

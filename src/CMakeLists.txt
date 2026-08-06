@@ -1,52 +1,69 @@
-project(cossdk)
+file(GLOB_RECURSE COS_SDK_SOURCES CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
+)
+file(GLOB_RECURSE COS_SDK_PUBLIC_HEADERS CONFIGURE_DEPENDS
+  "${PROJECT_SOURCE_DIR}/include/*.h"
+)
 
-if(USE_OPENSSL_MD5)
-    message(STATUS "Use Openssl Md5 Func")
-    add_definitions(-DUSE_OPENSSL_MD5)
-endif()
+function(configure_cos_target target_name target_type)
+  add_library(${target_name} ${target_type}
+    ${COS_SDK_SOURCES}
+    ${COS_SDK_PUBLIC_HEADERS}
+  )
 
-file(GLOB sdk_common_header "${CMAKE_SOURCE_DIR}/include/*.h")
-file(GLOB sdk_op_header "${CMAKE_SOURCE_DIR}/include/op/*.h")
-file(GLOB sdk_request_header "${CMAKE_SOURCE_DIR}/include/request/*.h")
-file(GLOB sdk_response_header "${CMAKE_SOURCE_DIR}/include/response/*.h")
-file(GLOB sdk_threadpool_header "${CMAKE_SOURCE_DIR}/include/threadpool/*.h")
-file(GLOB sdk_trsf_header "${CMAKE_SOURCE_DIR}/include/trsf/*.h")
-file(GLOB sdk_util_header "${CMAKE_SOURCE_DIR}/include/util/*.h")
-file(GLOB sdk_header
-        ${sdk_common_header}
-        ${sdk_op_header}
-        ${sdk_request_header}
-        ${sdk_response_header}
-        ${sdk_threadpool_header}
-        ${sdk_trsf_header}
-        ${sdk_util_header})
+  target_compile_features(${target_name} PUBLIC cxx_std_17)
+  if(MSVC)
+    target_compile_options(${target_name} PRIVATE /utf-8)
+  endif()
+  target_include_directories(${target_name}
+    PUBLIC
+      $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+      $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+  target_link_libraries(${target_name}
+    PRIVATE
+      $<BUILD_INTERFACE:CURL::libcurl>
+      $<BUILD_INTERFACE:OpenSSL::SSL>
+      $<BUILD_INTERFACE:OpenSSL::Crypto>
+      Threads::Threads
+  )
 
-file(GLOB sdk_common_src "${CMAKE_SOURCE_DIR}/src/*.cpp")
-file(GLOB sdk_op_src "${CMAKE_SOURCE_DIR}/src/op/*.cpp")
-file(GLOB sdk_request_src "${CMAKE_SOURCE_DIR}/src/request/*.cpp")
-file(GLOB sdk_response_src "${CMAKE_SOURCE_DIR}/src/response/*.cpp")
-file(GLOB sdk_trsf_src "${CMAKE_SOURCE_DIR}/src/trsf/*.cpp")
-file(GLOB sdk_util_src "${CMAKE_SOURCE_DIR}/src/util/*.cpp")
-file(GLOB sdk_src
-        ${sdk_common_src}
-        ${sdk_op_src}
-        ${sdk_request_src}
-        ${sdk_response_src}
-        ${sdk_trsf_src}
-        ${sdk_util_src})
+  if(WIN32)
+    target_link_libraries(${target_name} PRIVATE ws2_32)
+  endif()
 
-message("Sdk header: ${sdk_header}")
-message("Sdk src: ${sdk_src}")
+  if(ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(${target_name} PRIVATE --coverage)
+    target_link_options(${target_name} PRIVATE --coverage)
+  endif()
+endfunction()
 
-set(LIBRARY_OUTPUT_PATH ${CMAKE_BINARY_DIR}/lib)
-include_directories(${CMAKE_SOURCE_DIR}/include/ ${POCO_INCLUDE_DIR})
-add_library(${PROJECT_NAME} STATIC ${sdk_src} ${sdk_header})
-set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "cossdk")
+configure_cos_target(cossdk STATIC)
+add_library(cos::cossdk ALIAS cossdk)
+set_target_properties(cossdk PROPERTIES OUTPUT_NAME cossdk)
 
 if(BUILD_SHARED_LIB)
-    message(STATUS "Build shared lib")
-    link_directories(${POCO_LINK_DIR} ${OPENSSL_LINK_DIR}) #这一行要放到add_library前面
-    add_library(${PROJECT_NAME}-shared SHARED ${sdk_src})
-    include_directories(${CMAKE_SOURCE_DIR}/include/ ${POCO_INCLUDE_DIR})
-    target_link_libraries(${PROJECT_NAME}-shared ${POCO_LIBS} ${OPENSSL_LIBS} ${SYSTEM_LIBS})
+  configure_cos_target(cossdk-shared SHARED)
+  add_library(cos::cossdk-shared ALIAS cossdk-shared)
+  set_target_properties(cossdk-shared PROPERTIES
+    OUTPUT_NAME cossdk-shared
+    WINDOWS_EXPORT_ALL_SYMBOLS ON
+  )
+endif()
+
+install(
+  TARGETS cossdk
+  ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+  LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+  RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+)
+if(BUILD_SHARED_LIB)
+  install(
+    TARGETS cossdk-shared
+    ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+    LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+  )
 endif()

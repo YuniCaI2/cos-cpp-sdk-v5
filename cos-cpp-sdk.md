@@ -47,9 +47,31 @@ cos_demo.cpp里面有常见API的例子。生成的cos_demo可以直接运行，
 "DownloadThreadPoolSize":5,         // 单文件下载线程池大小
 "AsynThreadPoolSize":2,             // 异步上传下载线程池大小
 "LogoutType":1,                     // 日志输出类型,0:不输出,1:输出到屏幕,2输出到syslog
-"LogLevel":3                        // 日志级别:1: ERR, 2: WARN, 3:INFO, 4:DBG
-"IsCheckMd5":false                  // 下载文件时是否校验MD5, 默认不校验
+"LogLevel":3,                       // 日志级别:1: ERR, 2: WARN, 3:INFO, 4:DBG
+"IsCheckMd5":false,                 // 下载文件时是否校验MD5, 默认不校验
+"keepalive_mode":true,              // 是否开启连接复用(CURL句柄池)+TCP keepalive, 默认false
+"keepalive_idle_time":20,           // TCP keepalive空闲多久后探活, 单位s
+"keepalive_interval_time":5,        // TCP keepalive探活间隔, 单位s
+"CurlHandlePoolSize":64             // KeepAlive开启时缓存的CURL easy句柄上限, 默认64
 ```
+
+开启 `keepalive_mode` 后，SDK 会复用 CURL easy 句柄，从而复用同 host 的 TCP/TLS 连接；也可用代码设置：
+
+```cpp
+CosSysConfig::SetKeepAlive(true);
+CosSysConfig::SetKeepIdle(20);
+CosSysConfig::SetKeepIntvl(5);
+CosSysConfig::SetCurlHandlePoolSize(64);
+```
+
+`CurlHandlePoolSize` 需要不小于并发线程数，否则句柄归还时会因为超出上限被销毁，连接复用不上。
+
+连接复用的行为语义如下：
+
+- 只有 `curl_easy_perform` 返回 `CURLE_OK` 的请求才会把句柄归还到池中。超时、被取消、传输层失败的连接一律销毁，避免复用状态未知的连接。HTTP 4xx/5xx 本身仍然是 `CURLE_OK`，连接会保留。
+- 通过 `SetSSLCtxCallback` 设置了 TLS 上下文回调的请求使用独立句柄，既不进池也不共享缓存。因为 libcurl 在匹配可复用连接时不考虑这个回调，共享会导致一个请求用上另一个请求装载的证书身份。这类请求的行为与未开启 KeepAlive 时一致。
+- 句柄池只共享 DNS 缓存和 TLS 会话缓存，不共享连接缓存 —— libcurl 明确不支持在并发线程之间共享连接。复用来自"同一个句柄在同一时刻只被一个线程持有"，句柄在 `Acquire` 和 `Release` 之间独占。
+- 池中的句柄会一直持有它的连接，没有空闲淘汰。常驻套接字数的上限约为 `CurlHandlePoolSize` 乘以每个句柄缓存的连接数（libcurl 的 `CURLOPT_MAXCONNECTS` 默认为 5）。多 host 场景下如果需要控制常驻连接数，调小 `CurlHandlePoolSize` 即可。
 
 ### COS API对象构造原型
 

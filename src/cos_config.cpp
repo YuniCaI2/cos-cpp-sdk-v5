@@ -152,18 +152,19 @@ bool CosConfig::InitConf(const std::string& config_file) {
   }
 
   bool bool_value;
-// 长连接相关
-#if 0
-    if (JsonObjectGetBoolValue(object, "keepalive_mode", &bool_value)) {
-        CosSysConfig::SetKeepAlive(bool_value);
-    }
-    if (JsonObjectGetIntegerValue(object, "keepalive_idle_time", &integer_value)) {
-        CosSysConfig::SetKeepIdle(integer_value);
-    }
-    if (JsonObjectGetIntegerValue(object, "keepalive_interval_time", &integer_value)) {
-        CosSysConfig::SetKeepIntvl(integer_value);
-    }
-#endif
+  // 长连接 / CURL 句柄池(连接复用)
+  if (get_bool("keepalive_mode", &bool_value)) {
+    CosSysConfig::SetKeepAlive(bool_value);
+  }
+  if (get_integer("keepalive_idle_time", &integer_value)) {
+    CosSysConfig::SetKeepIdle(static_cast<int64_t>(integer_value));
+  }
+  if (get_integer("keepalive_interval_time", &integer_value)) {
+    CosSysConfig::SetKeepIntvl(static_cast<int64_t>(integer_value));
+  }
+  if (get_integer("CurlHandlePoolSize", &integer_value)) {
+    CosSysConfig::SetCurlHandlePoolSize(static_cast<unsigned>(integer_value));
+  }
   if (get_bool("IsCheckMd5", &bool_value)) {
     CosSysConfig::SetCheckMd5(bool_value);
   }

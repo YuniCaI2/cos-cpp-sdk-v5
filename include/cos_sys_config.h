@@ -45,7 +45,8 @@ class CosSysConfig {
   /// \brief 设置下载分片的大小
   static void SetDownSliceSize(unsigned slice_size);
 
-  /// \brief 设置长连接的参数
+  /// \brief 设置长连接的参数。开启后 HttpSender 复用 CURL 句柄以复用连接，
+  /// 并启用 TCP keepalive 探活。
   static void SetKeepAlive(bool keepalive);
 
   /// \brief 设置长连接的参数
@@ -53,6 +54,9 @@ class CosSysConfig {
 
   /// \brief 设置长连接的参数
   static void SetKeepIntvl(int64_t keepintvl);
+
+  /// \brief 设置 CURL 句柄池上限（仅 KeepAlive=true 时生效），默认 64
+  static void SetCurlHandlePoolSize(unsigned size);
 
   static void SetDestDomain(const std::string& dest_domain);
 
@@ -99,6 +103,9 @@ class CosSysConfig {
   static bool GetKeepAlive();
   static int64_t GetKeepIdle();
   static int64_t GetKeepIntvl();
+
+  /// \brief 获取 CURL 句柄池上限
+  static unsigned GetCurlHandlePoolSize();
 
   /// \brief 下载过程中是否检查MD5
   static bool IsCheckMd5();
@@ -206,6 +213,8 @@ private:
   static int64_t m_keep_idle;
   // 每个keepalive探针时间间隔，单位s
   static int64_t m_keep_intvl;
+  // KeepAlive 开启时缓存的 CURL easy 句柄上限
+  static unsigned m_curl_handle_pool_size;
   // 下载时是否检查md5
   static bool m_is_check_md5;
 

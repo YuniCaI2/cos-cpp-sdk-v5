@@ -38,6 +38,7 @@ unsigned CosSysConfig::m_down_slice_size = 4 * 1024 * 1024;
 bool CosSysConfig::m_keep_alive = false;
 int64_t CosSysConfig::m_keep_idle = 20;
 int64_t CosSysConfig::m_keep_intvl = 5;
+unsigned CosSysConfig::m_curl_handle_pool_size = 64;
 bool CosSysConfig::m_is_check_md5 = false;
 
 // 设置私有云host
@@ -88,6 +89,7 @@ void CosSysConfig::PrintValue() {
   std::cout << "keepalive:" << m_keep_alive << std::endl;
   std::cout << "keepidle:" << m_keep_idle << std::endl;
   std::cout << "keepintvl:" << m_keep_intvl << std::endl;
+  std::cout << "curl_handle_pool_size:" << m_curl_handle_pool_size << std::endl;
 }
 
 void CosSysConfig::SetKeepAlive(bool keep_alive) { m_keep_alive = keep_alive; }
@@ -96,6 +98,14 @@ void CosSysConfig::SetKeepIdle(int64_t keep_idle) { m_keep_idle = keep_idle; }
 
 void CosSysConfig::SetKeepIntvl(int64_t keep_intvl) {
   m_keep_intvl = keep_intvl;
+}
+
+void CosSysConfig::SetCurlHandlePoolSize(unsigned size) {
+  if (size < 1) {
+    m_curl_handle_pool_size = 1;
+  } else {
+    m_curl_handle_pool_size = size;
+  }
 }
 
 void CosSysConfig::SetUploadPartSize(uint64_t part_size) {
@@ -142,6 +152,10 @@ bool CosSysConfig::GetKeepAlive() { return m_keep_alive; }
 int64_t CosSysConfig::GetKeepIdle() { return m_keep_idle; }
 
 int64_t CosSysConfig::GetKeepIntvl() { return m_keep_intvl; }
+
+unsigned CosSysConfig::GetCurlHandlePoolSize() {
+  return m_curl_handle_pool_size;
+}
 
 void CosSysConfig::SetAuthExpiredTime(uint64_t time) {
   m_sign_expire_in_s = time;

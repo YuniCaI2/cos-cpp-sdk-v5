@@ -58,6 +58,55 @@ cmake --install build --config Release --prefix /opt/cos-cpp-sdk
 
 会安装公共头文件和 SDK 库。推荐下游工程直接把本仓库作为 `add_subdirectory` / submodule 使用 `cos::cossdk`。
 
+## 连接复用（KeepAlive）
+
+SDK 默认每个请求新建一条连接。开启 `keepalive_mode` 后，请求结束时 libcurl 的 easy 句柄会被归还到进程级句柄池，下一个请求取回同一句柄，从而复用已经建立好的 TCP/TLS 连接，同时启用 TCP keepalive 探活。为保持向后兼容，该开关默认关闭。
+
+在 `config.json` 中开启：
+
+```json
+"keepalive_mode": true,
+"keepalive_idle_time": 20,
+"keepalive_interval_time": 5,
+"CurlHandlePoolSize": 64
+```
+
+或用代码设置：
+
+```cpp
+CosSysConfig::SetKeepAlive(true);
+CosSysConfig::SetCurlHandlePoolSize(64);
+CosSysConfig::SetKeepIdle(20);
+CosSysConfig::SetKeepIntvl(5);
+```
+
+| 配置项 | 默认值 | 作用 |
+| --- | --- | --- |
+| `keepalive_mode` | `false` | 开启句柄池复用连接，并启用 TCP keepalive |
+| `CurlHandlePoolSize` | `64` | 空闲句柄缓存上限，最小为 1，仅在 `keepalive_mode` 为 `true` 时生效 |
+| `keepalive_idle_time` | `20` | TCP keepalive 空闲多久后开始探活，单位 s |
+| `keepalive_interval_time` | `5` | TCP keepalive 探活间隔，单位 s |
+
+`CurlHandlePoolSize` 需要不小于并发线程数，否则句柄归还时会因为超出上限而被销毁，连接就复用不上。行为语义（哪些请求不进池、空闲连接如何持有）见 [`cos-cpp-sdk.md`](cos-cpp-sdk.md)。
+
+### 实测效果
+
+在某内网接入点上用 `HeadBucket` 压测（https，8 线程 × 50 请求）：吞吐从 29 QPS 升到 120 QPS，平均延迟从 263 ms 降到 58 ms。并发扫描下吞吐上限从约 147 QPS 升到约 790 QPS，峰值出现在 64 并发。
+
+绝对值与具体链路强相关，可迁移的结论有两点。一是复用把每请求的 TCP+TLS 握手成本摊掉，尾延迟的改善比均值更明显。二是不复用时每个请求消耗一个临时端口，Windows 上 TIME_WAIT 要挂约 120 s，按 147 QPS 稳态需要约 17600 个端口，已经超过默认可用的 16384 个——也就是说不复用会先撞上临时端口耗尽，而不是带宽或服务端限流。
+
+### 验证
+
+```shell
+cmake -S . -B build -DBUILD_UNITTEST=ON
+cmake --build build --target cos-cpp-sdk-unit-tests
+build/unittest/cos-cpp-sdk-unit-tests --gtest_filter=HttpSenderReuseTest.*:CurlHandlePoolTest.*
+```
+
+`HttpSenderReuseTest` 会起一个回环 HTTP 服务器并统计 TCP accept 次数：开启复用时 5 个请求只 accept 1 次，关闭时 accept 5 次，不需要凭证和外网。
+
+`demo/keepalive_bench_demo/` 是对真实存储桶的压测程序，凭证从环境变量读取，会自动跑开关两种情况并给出对比。
+
 ## API 兼容性
 
 - 原有请求、响应、`CosAPI` 操作接口和 XML 数据格式尽量保持不变。

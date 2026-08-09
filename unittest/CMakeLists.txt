@@ -13,6 +13,7 @@ endif()
 set(COS_TEST_INCLUDE_DIRS
   "${CMAKE_CURRENT_SOURCE_DIR}/src"
   "${PROJECT_SOURCE_DIR}/include"
+  "${PROJECT_SOURCE_DIR}/src"
 )
 
 function(add_cos_test target_name)
@@ -34,7 +35,14 @@ add_cos_test(cos-cpp-sdk-unit-tests
   src/bucket_response_test.cpp
   src/util_test.cpp
   src/auditing_req_test.cpp
+  src/curl_handle_pool_test.cpp
+  src/http_sender_reuse_test.cpp
 )
+# The connection-reuse tests need libcurl headers/symbols for CURL* / CURLcode.
+target_link_libraries(cos-cpp-sdk-unit-tests PRIVATE CURL::libcurl)
+if(WIN32)
+  target_link_libraries(cos-cpp-sdk-unit-tests PRIVATE ws2_32)
+endif()
 
 if(BUILD_LEGACY_INTEGRATION_TESTS)
   find_package(Poco CONFIG REQUIRED

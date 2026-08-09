@@ -27,6 +27,7 @@
 #include "cos_sys_config.h"
 #include "internal/crypto_util.h"
 #include "util/codec_util.h"
+#include "util/curl_handle_pool.h"
 #include "util/string_util.h"
 
 namespace qcloud_cos {
@@ -54,14 +55,6 @@ struct SslCallbackContext {
   std::string error;
 };
 
-struct CurlHandleDeleter {
-  void operator()(CURL* handle) const {
-    if (handle != nullptr) {
-      curl_easy_cleanup(handle);
-    }
-  }
-};
-
 struct CurlSlistDeleter {
   void operator()(curl_slist* headers) const {
     if (headers != nullptr) {
@@ -70,8 +63,38 @@ struct CurlSlistDeleter {
   }
 };
 
-using CurlHandle = std::unique_ptr<CURL, CurlHandleDeleter>;
 using CurlSlist = std::unique_ptr<curl_slist, CurlSlistDeleter>;
+
+// RAII wrapper that returns the easy handle to CurlHandlePool. A handle taken
+// with allow_pooled=false is never published back to the pool.
+class PooledCurlHandle {
+ public:
+  explicit PooledCurlHandle(bool allow_pooled)
+      : m_handle(CurlHandlePool::Instance().Acquire(allow_pooled)),
+        m_allow_pooled(allow_pooled),
+        m_reusable(false) {}
+
+  ~PooledCurlHandle() {
+    if (m_handle != nullptr) {
+      CurlHandlePool::Instance().Release(m_handle,
+                                         m_allow_pooled && m_reusable);
+      m_handle = nullptr;
+    }
+  }
+
+  PooledCurlHandle(const PooledCurlHandle&) = delete;
+  PooledCurlHandle& operator=(const PooledCurlHandle&) = delete;
+
+  CURL* get() const { return m_handle; }
+  explicit operator bool() const { return m_handle != nullptr; }
+
+  void SetReusable(bool reusable) { m_reusable = reusable; }
+
+ private:
+  CURL* m_handle;
+  bool m_allow_pooled;
+  bool m_reusable;
+};
 
 CURLcode EnsureCurlInitialized() {
   static std::once_flag init_once;
@@ -452,7 +475,10 @@ int PerformRequest(
     return kHttpStatusNetError;
   }
 
-  CurlHandle curl(curl_easy_init());
+  // A per-request TLS context callback can install its own credentials, and
+  // libcurl does not take it into account when matching an existing connection.
+  // Such requests therefore get a private handle instead of a pooled one.
+  PooledCurlHandle curl(/*allow_pooled=*/!ssl_ctx_callback);
   if (!curl) {
     if (error_message != nullptr) {
       *error_message = "curl_easy_init failed";
@@ -499,6 +525,20 @@ int PerformRequest(
 
   if (http_method == "HEAD") {
     curl_easy_setopt(curl.get(), CURLOPT_NOBODY, 1L);
+  }
+
+  if (CosSysConfig::GetKeepAlive()) {
+    curl_easy_setopt(curl.get(), CURLOPT_TCP_KEEPALIVE, 1L);
+    const int64_t keep_idle = CosSysConfig::GetKeepIdle();
+    const int64_t keep_intvl = CosSysConfig::GetKeepIntvl();
+    if (keep_idle > 0) {
+      curl_easy_setopt(curl.get(), CURLOPT_TCP_KEEPIDLE,
+                       static_cast<long>(keep_idle));
+    }
+    if (keep_intvl > 0) {
+      curl_easy_setopt(curl.get(), CURLOPT_TCP_KEEPINTVL,
+                       static_cast<long>(keep_intvl));
+    }
   }
 
   curl_slist* raw_headers = nullptr;
@@ -571,6 +611,8 @@ int PerformRequest(
   SDK_LOG_DBG("request=[%s %s]", http_method.c_str(), request_url.c_str());
 
   const CURLcode curl_result = curl_easy_perform(curl.get());
+  curl.SetReusable(CurlHandlePool::IsConnectionReusable(curl_result));
+
   if (received_bytes != nullptr) {
     *received_bytes = context.received_bytes;
   }

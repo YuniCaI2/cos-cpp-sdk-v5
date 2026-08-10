@@ -9,6 +9,7 @@
 #define COS_RESULT_H
 #pragma once
 
+#include <cstdint>
 #include <map>
 #include <string>
 
